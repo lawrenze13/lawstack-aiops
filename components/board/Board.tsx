@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { NewTaskDialog } from "./NewTaskDialog";
 
 const LANES = [
@@ -83,15 +84,16 @@ export function Board({ initialTasks, scope }: Props) {
                   </p>
                 ) : (
                   inLane.map((t) => (
-                    <article
+                    <Link
                       key={t.id}
-                      className="rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-card)] p-3 shadow-sm"
+                      href={`/cards/${t.id}`}
+                      className="block rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-card)] p-3 shadow-sm transition hover:border-blue-500/40 hover:shadow"
                     >
                       <div className="text-xs font-mono text-[color:var(--color-muted-foreground)]">
                         {t.jiraKey}
                       </div>
                       <div className="mt-1 text-sm font-medium leading-snug">{t.title}</div>
-                    </article>
+                    </Link>
                   ))
                 )}
               </div>

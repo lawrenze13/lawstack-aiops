@@ -1,0 +1,245 @@
+import { spawn } from "node:child_process";
+import readline from "node:readline";
+import { eq, sql } from "drizzle-orm";
+import { db, sqlite } from "@/server/db/client";
+import { messages as messagesTable, runs } from "@/server/db/schema";
+import { audit } from "@/server/auth/audit";
+import { getRunBus, closeRunBus, type RunEvent } from "./runBus";
+import { runRegistry, type StopReason } from "./runRegistry";
+import { parseStreamLine } from "./streamParser";
+
+export type SpawnAgentParams = {
+  runId: string;
+  taskId: string;
+  prompt: string;
+  sessionId: string;
+  model: string;
+  worktreePath: string;
+  /** Resume an existing Claude session id instead of starting a fresh one. */
+  resumeSessionId?: string;
+};
+
+const KILL_GRACE_MS = 5000;
+
+/**
+ * Fork a `claude` subprocess for one lane run. Streams stream-json events to
+ * the DB (as `messages` rows) and to subscribers on the run's EventEmitter.
+ *
+ * Returns once the spawn has been registered. The child runs to completion
+ * in the background; observers attach via SSE on /api/runs/:id/stream.
+ */
+export function spawnAgent(p: SpawnAgentParams): void {
+  const args: string[] = [
+    "-oL",
+    "-eL",
+    "claude",
+    "-p",
+    p.prompt,
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--permission-mode",
+    "acceptEdits",
+    "--model",
+    p.model,
+  ];
+  if (p.resumeSessionId) {
+    args.push("--resume", p.resumeSessionId);
+  } else {
+    args.push("--session-id", p.sessionId);
+  }
+
+  // Minimised env — explicit allow-list. Critical: do NOT spread process.env
+  // (would leak SLACK_WEBHOOK, GH_TOKEN, etc. into Claude's reach via Bash
+  // tool calls).
+  const childEnv: NodeJS.ProcessEnv = {
+    NODE_ENV: process.env.NODE_ENV ?? "production",
+    PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+    HOME: process.env.HOME ?? p.worktreePath,
+    LANG: process.env.LANG ?? "en_US.UTF-8",
+    USER: process.env.USER ?? "",
+    TERM: "xterm-256color",
+  };
+  // Pass through Anthropic creds if explicitly set; otherwise rely on the
+  // user's logged-in `claude` CLI session (~/.claude/).
+  if (process.env.ANTHROPIC_API_KEY) childEnv.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+  if (process.env.CLAUDE_CODE_OAUTH_TOKEN)
+    childEnv.CLAUDE_CODE_OAUTH_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+
+  // The `as const` on stdio narrows the spawn overload so child.stdout / .stderr
+  // are typed as Readable (not nullable).
+  const child = spawn("stdbuf", args, {
+    cwd: p.worktreePath,
+    env: childEnv,
+    stdio: ["ignore", "pipe", "pipe"] as const,
+    detached: false,
+  });
+
+  // Stable process title so a future reconciler can pkill orphans by pattern.
+  try {
+    process.title = process.title; // no-op; child.title is set via argv0 only — leave for now
+  } catch {
+    // ignore
+  }
+
+  const bus = getRunBus(p.runId);
+  const startedAt = Date.now();
+
+  const stop = (reason: StopReason): void => {
+    if (child.killed) return;
+    audit({ action: "run.stop_requested", runId: p.runId, payload: { reason } });
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      // ignore
+    }
+    setTimeout(() => {
+      if (!child.killed) {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // ignore
+        }
+      }
+    }, KILL_GRACE_MS).unref();
+  };
+
+  runRegistry.set(p.runId, {
+    runId: p.runId,
+    taskId: p.taskId,
+    child,
+    startedAt,
+    stop,
+  });
+
+  // Prepared statements — hot-path inserts.
+  const insertMsg = sqlite.prepare(
+    `INSERT INTO messages (run_id, seq, type, payload_json, created_at)
+     VALUES (?, COALESCE((SELECT MAX(seq) FROM messages WHERE run_id = ?), 0) + 1, ?, ?, ?)
+     RETURNING seq`,
+  );
+  const heartbeat = sqlite.prepare(`UPDATE runs SET last_heartbeat_at = ? WHERE id = ?`);
+
+  const persistAndEmit = (
+    type: RunEvent["type"],
+    payload: unknown,
+  ): void => {
+    try {
+      const row = insertMsg.get(p.runId, p.runId, type, JSON.stringify(payload), Date.now()) as
+        | { seq: number }
+        | undefined;
+      const seq = row?.seq ?? 0;
+      heartbeat.run(Date.now(), p.runId);
+      bus.emit("event", { seq, type, payload } satisfies RunEvent);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[spawnAgent] persist failed", { runId: p.runId, err });
+    }
+  };
+
+  // Synthesise a 'server' event so the client sees that the run started even
+  // before Claude emits its first 'system init' frame.
+  persistAndEmit("server", { kind: "spawned", model: p.model, worktree: p.worktreePath });
+
+  const rl = readline.createInterface({ input: child.stdout!, terminal: false });
+  rl.on("line", (line) => {
+    const ev = parseStreamLine(line);
+    if (!ev) return;
+
+    // Capture the real Claude session_id from the system init frame (in case
+    // it differs from the one we passed via --session-id).
+    if (ev.type === "system" && ev.hint?.sessionId) {
+      try {
+        db.update(runs)
+          .set({ claudeSessionId: ev.hint.sessionId })
+          .where(eq(runs.id, p.runId))
+          .run();
+      } catch {
+        // ignore
+      }
+    }
+
+    persistAndEmit(ev.type as RunEvent["type"], ev.payload);
+
+    if (ev.type === "result" && ev.hint) {
+      try {
+        db.update(runs)
+          .set({
+            costUsdMicros: Math.round((ev.hint.finalCostUsd ?? 0) * 1_000_000),
+            numTurns: ev.hint.finalTurns ?? 0,
+          })
+          .where(eq(runs.id, p.runId))
+          .run();
+      } catch {
+        // ignore
+      }
+    }
+  });
+
+  // Surface stderr as `server` events so they're visible in the UI without
+  // killing the run (Claude often writes warnings to stderr).
+  if (child.stderr) {
+    const rlErr = readline.createInterface({ input: child.stderr, terminal: false });
+    rlErr.on("line", (line) => {
+      if (!line.trim()) return;
+      persistAndEmit("server", { kind: "stderr", line: line.slice(0, 500) });
+    });
+  }
+
+  child.on("error", (err) => {
+    persistAndEmit("server", { kind: "spawn_error", error: String(err) });
+    finalize(p.runId, "failed", `spawn_error: ${String(err)}`);
+  });
+
+  child.on("exit", (code, signal) => {
+    persistAndEmit("server", { kind: "exit", code, signal });
+    const status = decideExitStatus(code, signal);
+    finalize(p.runId, status, `exit code=${code} signal=${signal ?? "none"}`);
+  });
+
+  audit({ action: "run.started", runId: p.runId, taskId: p.taskId, payload: { model: p.model } });
+  void sql; // silence unused-import in some configs
+}
+
+function decideExitStatus(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+): "completed" | "failed" | "stopped" {
+  if (signal === "SIGTERM" || signal === "SIGKILL") return "stopped";
+  if (code === 0) return "completed";
+  return "failed";
+}
+
+function finalize(
+  runId: string,
+  status: "completed" | "failed" | "stopped" | "cost_killed" | "interrupted",
+  reason: string,
+): void {
+  const handle = runRegistry.get(runId);
+  if (handle) runRegistry.delete(runId);
+
+  try {
+    db.update(runs)
+      .set({
+        status,
+        finishedAt: new Date(),
+        ...(status === "failed" || status === "stopped" || status === "cost_killed"
+          ? { killedReason: reason }
+          : {}),
+      })
+      .where(eq(runs.id, runId))
+      .run();
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("[spawnAgent] finalize update failed", { runId, err });
+  }
+
+  // Emit one last bus event so any connected SSE clients can show the
+  // finalised state, then keep the bus alive briefly for late subscribers
+  // (replay covers anything missed).
+  const bus = getRunBus(runId);
+  bus.emit("end", { type: "end", status, reason });
+  setTimeout(() => closeRunBus(runId), 5000).unref();
+
+  audit({ action: "run.finalized", runId, payload: { status, reason } });
+}

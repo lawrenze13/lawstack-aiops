@@ -514,15 +514,25 @@ On boot, registry rows are upserted into the `agent_config` cache table with a `
 
 #### Phase 2: Agent runner + SSE (week 2)
 
-- `server/worker/{spawnAgent,streamParser,runRegistry,runBus,costMeter}.ts`
-- `server/git/worktree.ts` with preflight + collision guard
-- `app/api/tasks/[id]/runs/route.ts` (POST start), `app/api/runs/[id]/{stream,message,stop}/route.ts`
-- Per-lane prompt templates extracted from `ticket-worker.sh`
-- Hand-rolled `useRunStream(runId)` hook + `<RunLog>` + `<ChatBox>` + `<CostBadge>`
-- Cost guardrails ($5 warn / $15 hard kill) wired end-to-end
-- Crash-recovery banner + Resume action
-- **Deliverable:** click "Run Brainstorm" on a card; live tool-use events render; can chat mid-run; `Stop` works; cost shown live
-- **Success criteria:** AC-1, AC-2, AC-5, AC-8 (see Acceptance Criteria) pass
+**Phase 2A — Minimum runnable agent (landed):**
+- [x] `server/worker/{spawnAgent,streamParser,runRegistry,runBus}.ts` *(costMeter deferred to 2B)*
+- [x] `server/git/worktree.ts` with preflight + collision guard *(UUID-based path under WORKTREE_ROOT)*
+- [x] `app/api/tasks/[id]/runs/route.ts` (POST start), `app/api/runs/[id]/stream/route.ts` *(message + stop deferred to 2B)*
+- [x] Per-lane prompt templates extracted from `ticket-worker.sh` *(in `server/agents/registry.ts`)*
+- [x] Hand-rolled `useRunStream(runId)` hook + `<RunLog>` *(via `components/card-detail/RunLog.tsx`; ChatBox + CostBadge in 2B)*
+- [x] `server/agents/{registry,sync}.ts` — TS source-of-truth + DB cache, snapshot per run
+- [x] Card detail page `/cards/[id]` with RunStarter + RunLog
+- [x] Board cards click through to detail page
+
+**Phase 2B — Deferred:**
+- [ ] Cost guardrails ($5 warn / $15 hard kill) wired end-to-end
+- [ ] `app/api/runs/[id]/{message,stop}/route.ts` + ChatBox UI + Stop button
+- [ ] Crash-recovery banner + Resume action (DB rows interrupted on boot via reconciler — UI surfaces it)
+- [ ] CostBadge live counter in card detail header
+- [ ] Auto-advance between lanes on `result` event
+
+- **Deliverable (2A landed):** click "Run Brainstorm" on a card; live tool-use events render in the run log; refresh-resume via Last-Event-ID works
+- **Success criteria (2A):** AC-2 (replay) passes; AC-1 (crash recovery) needs 2B's UI banner; AC-5 (cost cap) needs 2B's costMeter; AC-8 (stuck runs) needs 2B's admin ops page
 
 #### Phase 3: Pipeline + Approve & PR (week 3)
 
