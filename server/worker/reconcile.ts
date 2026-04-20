@@ -1,20 +1,28 @@
 import "server-only";
-import { eq } from "drizzle-orm";
+import { and, eq, notInArray } from "drizzle-orm";
 import { db } from "@/server/db/client";
 import { runs } from "@/server/db/schema";
 import { audit } from "@/server/auth/audit";
+import { runRegistry } from "./runRegistry";
 
 /**
- * Boot-time crash recovery. Any run row left as `running` after a server
- * restart had no PID to track and is therefore lost. We mark it `interrupted`
- * with a reason; the UI will surface a `Resume` button (Phase 2) that spawns
- * a fresh child resuming the same `claude_session_id`.
+ * Boot-time crash recovery. Any run row left as `running` whose id is NOT
+ * currently in the in-memory runRegistry is truly orphaned — the process
+ * owning it has died. Mark those `interrupted`.
  *
- * Phase 1: no live runs exist yet, so this is a no-op. Phase 2 wires the
- * runRegistry reconciliation (PID liveness checks, orphan-process sweep).
+ * Runs currently in the registry are alive in THIS process (spawnAgent just
+ * added them), so we must skip them — otherwise an HMR-triggered re-run of
+ * this function would wipe live runs.
  */
 export function reconcileInterruptedRuns(): void {
-  const stuck = db.select({ id: runs.id }).from(runs).where(eq(runs.status, "running")).all();
+  const liveIds = Array.from(runRegistry.keys());
+
+  const whereClause =
+    liveIds.length > 0
+      ? and(eq(runs.status, "running"), notInArray(runs.id, liveIds))
+      : eq(runs.status, "running");
+
+  const stuck = db.select({ id: runs.id }).from(runs).where(whereClause).all();
   if (stuck.length === 0) return;
 
   const now = Date.now();
@@ -33,5 +41,7 @@ export function reconcileInterruptedRuns(): void {
   });
 
   // eslint-disable-next-line no-console
-  console.warn(`[reconcile] marked ${stuck.length} run(s) as interrupted on boot`);
+  console.warn(
+    `[reconcile] marked ${stuck.length} run(s) as interrupted on boot (${liveIds.length} live in this process preserved)`,
+  );
 }
