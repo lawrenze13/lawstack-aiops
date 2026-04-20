@@ -136,6 +136,7 @@ export default async function CardDetailPage({ params }: Props) {
                   runId={currentRun.id}
                   initialStatus={currentRun.status}
                   initialCostUsd={currentRun.costUsdMicros / 1_000_000}
+                  initialStartedAtMs={new Date(currentRun.startedAt).getTime()}
                   canControl={
                     (session.user as { role?: string } | undefined)?.role === "admin" ||
                     task.ownerId === (session.user as { id?: string } | undefined)?.id
