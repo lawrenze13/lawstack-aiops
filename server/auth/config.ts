@@ -5,7 +5,7 @@ import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { db } from "@/server/db/client";
 import { allowedEmail, users, accounts, sessions, verificationTokens } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
-import { env } from "@/server/lib/env";
+import { env, ALLOWED_DOMAINS } from "@/server/lib/env";
 import { audit } from "./audit";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -15,16 +15,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     sessionsTable: sessions,
     verificationTokensTable: verificationTokens,
   }),
-  session: { strategy: "database" },
+  // JWT strategy is required because middleware (Edge runtime) cannot make
+  // DB calls. The Drizzle adapter still persists users/accounts on first
+  // sign-in; only the session row is skipped — session state lives in the
+  // signed JWT cookie. Middleware in middleware.ts uses the same secret to
+  // verify the cookie without touching the DB.
+  session: { strategy: "jwt" },
   trustHost: true,
   providers: [
     Google({
       clientId: env.AUTH_GOOGLE_ID ?? "",
       clientSecret: env.AUTH_GOOGLE_SECRET ?? "",
-      // Hint Google to pre-filter to your workspace domain. We still verify
-      // server-side; `hd` from Google can be claimed but never trusted alone.
+      // Note: Google's `hd` param accepts only ONE domain, so we omit it when
+      // multiple domains are allowed and let the user pick. The signIn
+      // callback below is the authoritative server-side check.
       authorization: {
-        params: { hd: env.ALLOWED_EMAIL_DOMAIN, prompt: "select_account" },
+        params: {
+          ...(ALLOWED_DOMAINS.length === 1 ? { hd: ALLOWED_DOMAINS[0]! } : {}),
+          prompt: "select_account",
+        },
       },
     }),
   ],
@@ -41,8 +50,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         audit({ action: "auth.denied_unverified", payload: { email } });
         return false;
       }
-      if (!email.endsWith(`@${env.ALLOWED_EMAIL_DOMAIN.toLowerCase()}`)) {
-        audit({ action: "auth.denied_domain", payload: { email } });
+      const domain = email.split("@")[1] ?? "";
+      if (!ALLOWED_DOMAINS.includes(domain)) {
+        audit({ action: "auth.denied_domain", payload: { email, allowed: ALLOWED_DOMAINS } });
         return false;
       }
 
@@ -66,12 +76,22 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       audit({ action: "auth.signin", payload: { email } });
       return true;
     },
-    async session({ session, user }) {
-      // Surface the app-level role + id on the session for route handlers.
+    // JWT callback runs first; we copy the DB user.id + role into the token
+    // so they're available everywhere (route handlers, middleware, server
+    // components) without a DB hit.
+    async jwt({ token, user }) {
       if (user) {
-        (session.user as typeof session.user & { id: string; role: string }).id = user.id;
+        token.id = user.id;
+        token.role = (user as { role?: string }).role ?? "member";
+      }
+      return token;
+    },
+    async session({ session, token }) {
+      if (token) {
+        (session.user as typeof session.user & { id: string; role: string }).id =
+          (token.id as string) ?? "";
         (session.user as typeof session.user & { id: string; role: string }).role =
-          (user as { role?: string }).role ?? "member";
+          (token.role as string) ?? "member";
       }
       return session;
     },

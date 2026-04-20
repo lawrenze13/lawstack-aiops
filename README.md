@@ -20,12 +20,14 @@ Phase 1 (Foundation) — in progress. Phases 2–4 deliver the agent runner, App
 ## Quick start
 
 ```bash
-nvm use 20                      # or use Node 20+
+nvm use                         # picks Node 20 from .nvmrc
 npm install
 cp .env.example .env            # then fill in real secrets
 npm run db:migrate              # creates ./data/app.db
-npm run dev                     # http://localhost:3000
+npm run dev                     # http://localhost:3300 (pinned to avoid clash with ui.multiportal.io on 3000)
 ```
+
+> ⚠ If you see `NODE_MODULE_VERSION 115 ... requires NODE_MODULE_VERSION 108`, you're running the wrong Node version. Run `nvm use` (or `nvm use 20`) before `npm run dev`. The native better-sqlite3 binding is compiled against the Node version that ran `npm install`.
 
 ## Environment variables
 
