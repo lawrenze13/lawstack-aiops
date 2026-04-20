@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { eq } from "drizzle-orm";
 import { db } from "@/server/db/client";
@@ -154,4 +154,62 @@ export function markWorktreeRemoved(taskId: string): void {
     .set({ status: "removed" })
     .where(eq(worktrees.taskId, taskId))
     .run();
+}
+
+/**
+ * Physically remove a task's worktree from disk and mark the DB row removed.
+ * Best-effort: git worktree remove is tried first (clean unregister from the
+ * parent repo's .git/worktrees), then rm -rf as a fallback if git's refusal
+ * or path drift leaves junk behind. The local branch is deleted too so a
+ * future ensureWorktree() can re-create cleanly.
+ *
+ * Remote state (origin branch, open PRs) is NOT touched — callers surface
+ * warnings for those separately.
+ */
+export async function removeWorktreeForTask(taskId: string): Promise<{
+  removed: boolean;
+  warnings: string[];
+}> {
+  const warnings: string[] = [];
+  const row = db.select().from(worktrees).where(eq(worktrees.taskId, taskId)).limit(1).get();
+  if (!row || row.status === "removed") {
+    // No live worktree to clean — still return success so the caller can
+    // proceed with archival.
+    return { removed: false, warnings };
+  }
+  if (!env.BASE_REPO) {
+    warnings.push("BASE_REPO not configured; leaving worktree on disk");
+    markWorktreeRemoved(taskId);
+    return { removed: false, warnings };
+  }
+
+  // 1. Ask git to unregister the worktree cleanly. --force covers dirty
+  //    trees (uncommitted edits from the agent).
+  try {
+    await exec("git", ["worktree", "remove", "--force", row.path], {
+      cwd: env.BASE_REPO,
+    });
+  } catch (err) {
+    warnings.push(`git worktree remove failed: ${(err as Error).message}`);
+  }
+
+  // 2. Delete the local branch if it still exists (independent of worktree).
+  try {
+    await exec("git", ["branch", "-D", row.branch], { cwd: env.BASE_REPO });
+  } catch {
+    // branch may already be gone as part of the worktree remove; fine.
+  }
+
+  // 3. rm -rf as belt-and-braces in case step 1 left orphan files (happens
+  //    when the worktree root was manually mucked with).
+  if (existsSync(row.path)) {
+    try {
+      await rm(row.path, { recursive: true, force: true });
+    } catch (err) {
+      warnings.push(`rm -rf failed: ${(err as Error).message}`);
+    }
+  }
+
+  markWorktreeRemoved(taskId);
+  return { removed: true, warnings };
 }

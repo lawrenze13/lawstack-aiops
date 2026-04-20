@@ -8,6 +8,7 @@ import { RunLog } from "@/components/card-detail/RunLog";
 import { RunStarter } from "@/components/card-detail/RunStarter";
 import { ResumeBanner } from "@/components/card-detail/ResumeBanner";
 import { ChatBox } from "@/components/card-detail/ChatBox";
+import { ArchiveButton } from "@/components/card-detail/ArchiveButton";
 import { defaultAgentForLane } from "@/server/agents/registry";
 
 export const runtime = "nodejs";
@@ -71,6 +72,10 @@ export default async function CardDetailPage({ params }: Props) {
           <span className="rounded bg-[color:var(--color-muted)] px-2 py-1 font-medium">
             lane: {task.currentLane}
           </span>
+          {(session.user as { role?: string } | undefined)?.role === "admin" ||
+          task.ownerId === (session.user as { id?: string } | undefined)?.id ? (
+            <ArchiveButton taskId={task.id} jiraKey={task.jiraKey} />
+          ) : null}
         </div>
       </header>
 
