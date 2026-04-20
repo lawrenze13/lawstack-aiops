@@ -1,0 +1,53 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# next
+/.next/
+/out/
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env
+.env
+.env*.local
+.env.development
+.env.production
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# database (local SQLite + WAL sidecars)
+/data/*.db
+/data/*.db-wal
+/data/*.db-shm
+
+# worktrees (managed at /var/aiops/worktrees in prod, but local dev may use ./worktrees)
+/worktrees/
+
+# IDE
+.vscode/
+.idea/
+
+# logs
+/logs
+*.log
+
+# OS
+Thumbs.db
