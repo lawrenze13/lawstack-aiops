@@ -7,6 +7,7 @@ import { runs, tasks } from "@/server/db/schema";
 import { RunLog } from "@/components/card-detail/RunLog";
 import { RunStarter } from "@/components/card-detail/RunStarter";
 import { ResumeBanner } from "@/components/card-detail/ResumeBanner";
+import { ChatBox } from "@/components/card-detail/ChatBox";
 import { defaultAgentForLane } from "@/server/agents/registry";
 
 export const runtime = "nodejs";
@@ -127,17 +128,34 @@ export default async function CardDetailPage({ params }: Props) {
           ) : null}
         </aside>
 
-        <div className="col-span-8 min-h-0 rounded-lg border border-[color:var(--color-border)]">
+        <div className="col-span-8 flex min-h-0 flex-col rounded-lg border border-[color:var(--color-border)]">
           {currentRun ? (
-            <RunLog
-              runId={currentRun.id}
-              initialStatus={currentRun.status}
-              initialCostUsd={currentRun.costUsdMicros / 1_000_000}
-              canControl={
-                (session.user as { role?: string } | undefined)?.role === "admin" ||
-                task.ownerId === (session.user as { id?: string } | undefined)?.id
-              }
-            />
+            <>
+              <div className="min-h-0 flex-1">
+                <RunLog
+                  runId={currentRun.id}
+                  initialStatus={currentRun.status}
+                  initialCostUsd={currentRun.costUsdMicros / 1_000_000}
+                  canControl={
+                    (session.user as { role?: string } | undefined)?.role === "admin" ||
+                    task.ownerId === (session.user as { id?: string } | undefined)?.id
+                  }
+                />
+              </div>
+              {currentRun.claudeSessionId &&
+              ((session.user as { role?: string } | undefined)?.role === "admin" ||
+                task.ownerId === (session.user as { id?: string } | undefined)?.id) ? (
+                <ChatBox
+                  runId={currentRun.id}
+                  canSend={currentRun.status !== "running"}
+                  blockedReason={
+                    currentRun.status === "running"
+                      ? "Run is still streaming — click Stop to chat."
+                      : undefined
+                  }
+                />
+              ) : null}
+            </>
           ) : (
             <p className="p-6 text-sm text-[color:var(--color-muted-foreground)]">
               No active run for this card. Start one above to see live agent output here.

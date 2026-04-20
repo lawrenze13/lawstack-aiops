@@ -530,10 +530,13 @@ On boot, registry rows are upserted into the `agent_config` cache table with a `
 - [x] Crash-recovery Resume banner *(surfaces interrupted runs with a Resume button that POSTs a new run with resumeSessionId)*
 - [x] CostBadge live counter in card detail header *(green → yellow at $5 → red at $15; inline in RunLog)*
 
-**Phase 2B2 — Deferred:**
-- [ ] `app/api/runs/[id]/message/route.ts` + ChatBox UI *(claude --resume injection with per-run PQueue serialiser)*
-- [ ] Auto-advance between lanes on `result` event
-- [ ] `ce:review` prompt split (plan-lane variant vs review-lane variant)
+**Phase 2B2 — Chat + auto-advance (landed):**
+- [x] `app/api/runs/[id]/message/route.ts` + ChatBox UI *(POST spawns fresh `claude --resume <sessionId> -p "<text>"` via startRun with overridePrompt; per-run mutex in `server/worker/chatMutex.ts` serialises concurrent sends)*
+- [x] Auto-advance between lanes on `result` event *(server/worker/autoAdvance.ts + dynamic import in finalize(); brainstorm→plan→review; stops at review→pr since pr is not agent-driven)*
+- [x] Shared `startRun()` helper *(server/worker/startRun.ts; single spawn path used by user-start, chat, and auto-advance)*
+
+**Phase 2B3 — Deferred (minor):**
+- [ ] `ce:review` prompt split (plan-lane variant reads codebase; review-lane variant reads the plan artifact and validates)
 
 - **Deliverable (2A landed):** click "Run Brainstorm" on a card; live tool-use events render in the run log; refresh-resume via Last-Event-ID works
 - **Success criteria (2A):** AC-2 (replay) passes; AC-1 (crash recovery) needs 2B's UI banner; AC-5 (cost cap) needs 2B's costMeter; AC-8 (stuck runs) needs 2B's admin ops page

@@ -232,14 +232,14 @@ export function spawnAgent(p: SpawnAgentParams): void {
 
   child.on("error", (err) => {
     persistAndEmit("server", { kind: "spawn_error", error: String(err) });
-    finalize(p.runId, "failed", `spawn_error: ${String(err)}`);
+    void finalize(p.runId, "failed", `spawn_error: ${String(err)}`);
   });
 
   child.on("exit", (code, signal) => {
     persistAndEmit("server", { kind: "exit", code, signal });
     const status = decideExitStatus(code, signal, lastStopReason);
     const reasonTag = lastStopReason ? `${lastStopReason}:` : "";
-    finalize(p.runId, status, `${reasonTag}exit code=${code} signal=${signal ?? "none"}`);
+    void finalize(p.runId, status, `${reasonTag}exit code=${code} signal=${signal ?? "none"}`);
   });
 
   audit({ action: "run.started", runId: p.runId, taskId: p.taskId, payload: { model: p.model } });
@@ -257,11 +257,11 @@ function decideExitStatus(
   return "failed";
 }
 
-function finalize(
+async function finalize(
   runId: string,
   status: "completed" | "failed" | "stopped" | "cost_killed" | "interrupted",
   reason: string,
-): void {
+): Promise<void> {
   const handle = runRegistry.get(runId);
   if (handle) runRegistry.delete(runId);
   clearMeter(runId);
@@ -290,4 +290,16 @@ function finalize(
   setTimeout(() => closeRunBus(runId), 5000).unref();
 
   audit({ action: "run.finalized", runId, payload: { status, reason } });
+
+  // Auto-advance to the next lane on clean completion. Dynamic import keeps
+  // the module graph acyclic (autoAdvance imports startRun imports spawnAgent).
+  if (status === "completed") {
+    try {
+      const { maybeAutoAdvance } = await import("./autoAdvance");
+      await maybeAutoAdvance(runId);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[spawnAgent] auto-advance dispatch failed", { runId, err });
+    }
+  }
 }
