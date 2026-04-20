@@ -45,10 +45,10 @@ export default async function CardDetailPage({ params }: Props) {
     label: string;
   }> = [];
   if (brainstormAgent)
-    starterOptions.push({ lane: "brainstorm", agentId: brainstormAgent, label: "Run Brainstorm" });
-  if (planAgent) starterOptions.push({ lane: "plan", agentId: planAgent, label: "Run Plan" });
+    starterOptions.push({ lane: "brainstorm", agentId: brainstormAgent, label: "Brainstorm" });
+  if (planAgent) starterOptions.push({ lane: "plan", agentId: planAgent, label: "Plan" });
   if (reviewAgent)
-    starterOptions.push({ lane: "review", agentId: reviewAgent, label: "Run Review" });
+    starterOptions.push({ lane: "review", agentId: reviewAgent, label: "Review" });
 
   return (
     <main className="flex h-screen flex-col">
