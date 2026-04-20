@@ -7,6 +7,14 @@ import { audit } from "@/server/auth/audit";
 import { getRunBus, closeRunBus, type RunEvent } from "./runBus";
 import { runRegistry, type StopReason } from "./runRegistry";
 import { parseStreamLine } from "./streamParser";
+import {
+  clearMeter,
+  COST_KILL_USD,
+  COST_WARN_USD,
+  finalizeMeter,
+  initMeter,
+  observeAssistantUsage,
+} from "./costMeter";
 
 export type SpawnAgentParams = {
   runId: string;
@@ -85,8 +93,10 @@ export function spawnAgent(p: SpawnAgentParams): void {
   const bus = getRunBus(p.runId);
   const startedAt = Date.now();
 
+  let lastStopReason: StopReason | undefined;
   const stop = (reason: StopReason): void => {
     if (child.killed) return;
+    lastStopReason = reason;
     audit({ action: "run.stop_requested", runId: p.runId, payload: { reason } });
     try {
       child.kill("SIGTERM");
@@ -111,6 +121,8 @@ export function spawnAgent(p: SpawnAgentParams): void {
     startedAt,
     stop,
   });
+
+  initMeter(p.runId, p.model);
 
   // Prepared statements — hot-path inserts.
   const insertMsg = sqlite.prepare(
@@ -161,17 +173,49 @@ export function spawnAgent(p: SpawnAgentParams): void {
 
     persistAndEmit(ev.type as RunEvent["type"], ev.payload);
 
+    // Cost meter — observe assistant usage blocks, may warn or hard-kill.
+    if (ev.type === "assistant") {
+      const usage = (ev.payload as { message?: { usage?: unknown } }).message?.usage as
+        | Record<string, number>
+        | undefined;
+      if (usage) {
+        const outcome = observeAssistantUsage(p.runId, usage);
+        if (outcome.kind === "warn") {
+          persistAndEmit("server", {
+            kind: "cost_warn",
+            usdCumulative: outcome.usdCumulative,
+            threshold: COST_WARN_USD,
+          });
+        } else if (outcome.kind === "kill") {
+          persistAndEmit("server", {
+            kind: "cost_killed",
+            usdCumulative: outcome.usdCumulative,
+            threshold: COST_KILL_USD,
+          });
+          stop("cost_cap");
+        } else {
+          // Emit periodic cost ticks so the UI CostBadge can update live.
+          persistAndEmit("server", {
+            kind: "cost_tick",
+            usdCumulative: outcome.usdCumulative,
+          });
+        }
+      }
+    }
+
     if (ev.type === "result" && ev.hint) {
       try {
         db.update(runs)
-          .set({
-            costUsdMicros: Math.round((ev.hint.finalCostUsd ?? 0) * 1_000_000),
-            numTurns: ev.hint.finalTurns ?? 0,
-          })
+          .set({ numTurns: ev.hint.finalTurns ?? 0 })
           .where(eq(runs.id, p.runId))
           .run();
       } catch {
         // ignore
+      }
+      if (typeof ev.hint.finalCostUsd === "number") {
+        finalizeMeter(p.runId, ev.hint.finalCostUsd);
+      } else {
+        clearMeter(p.runId);
       }
     }
   });
@@ -193,8 +237,9 @@ export function spawnAgent(p: SpawnAgentParams): void {
 
   child.on("exit", (code, signal) => {
     persistAndEmit("server", { kind: "exit", code, signal });
-    const status = decideExitStatus(code, signal);
-    finalize(p.runId, status, `exit code=${code} signal=${signal ?? "none"}`);
+    const status = decideExitStatus(code, signal, lastStopReason);
+    const reasonTag = lastStopReason ? `${lastStopReason}:` : "";
+    finalize(p.runId, status, `${reasonTag}exit code=${code} signal=${signal ?? "none"}`);
   });
 
   audit({ action: "run.started", runId: p.runId, taskId: p.taskId, payload: { model: p.model } });
@@ -204,7 +249,9 @@ export function spawnAgent(p: SpawnAgentParams): void {
 function decideExitStatus(
   code: number | null,
   signal: NodeJS.Signals | null,
-): "completed" | "failed" | "stopped" {
+  stopReason?: StopReason,
+): "completed" | "failed" | "stopped" | "cost_killed" {
+  if (stopReason === "cost_cap") return "cost_killed";
   if (signal === "SIGTERM" || signal === "SIGKILL") return "stopped";
   if (code === 0) return "completed";
   return "failed";
@@ -217,6 +264,7 @@ function finalize(
 ): void {
   const handle = runRegistry.get(runId);
   if (handle) runRegistry.delete(runId);
+  clearMeter(runId);
 
   try {
     db.update(runs)

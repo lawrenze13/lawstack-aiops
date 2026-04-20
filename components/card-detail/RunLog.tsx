@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useReducer, useRef } from "react";
+import { useEffect, useReducer, useRef, useState, useTransition } from "react";
 
 type EventRow = {
   seq: number;
@@ -19,6 +19,10 @@ type State = {
   events: EventRow[];
   ended: { status: string; reason: string | null } | null;
   connected: boolean;
+  /** Running cost in USD from the server's cost_tick events. */
+  costUsd: number;
+  /** "warn" when $5 crossed, "kill" when $15 enforced. */
+  costState: "ok" | "warn" | "kill";
 };
 
 type Action =
@@ -28,10 +32,27 @@ type Action =
 
 function reducer(state: State, action: Action): State {
   switch (action.kind) {
-    case "event":
-      // De-dupe by seq (replay-then-live can briefly overlap).
+    case "event": {
       if (state.events.some((e) => e.seq === action.row.seq)) return state;
-      return { ...state, events: [...state.events, action.row] };
+
+      // Update cost from server cost_tick/warn/kill events.
+      let next = { ...state, events: [...state.events, action.row] };
+      if (action.row.type === "server") {
+        const p = action.row.payload as {
+          kind?: string;
+          usdCumulative?: number;
+        };
+        if (typeof p.usdCumulative === "number") {
+          next.costUsd = p.usdCumulative;
+        }
+        if (p.kind === "cost_warn") next.costState = "warn";
+        if (p.kind === "cost_killed") next.costState = "kill";
+      } else if (action.row.type === "result") {
+        const p = action.row.payload as { total_cost_usd?: number };
+        if (typeof p.total_cost_usd === "number") next.costUsd = p.total_cost_usd;
+      }
+      return next;
+    }
     case "end":
       return { ...state, ended: { status: action.status, reason: action.reason } };
     case "connected":
@@ -39,13 +60,30 @@ function reducer(state: State, action: Action): State {
   }
 }
 
-const initial: State = { events: [], ended: null, connected: false };
+const initial: State = {
+  events: [],
+  ended: null,
+  connected: false,
+  costUsd: 0,
+  costState: "ok",
+};
 
-type Props = { runId: string };
+type Props = {
+  runId: string;
+  initialStatus: string;
+  initialCostUsd: number;
+  /** true when the viewer can stop the run (owner or admin). */
+  canControl: boolean;
+};
 
-export function RunLog({ runId }: Props) {
-  const [state, dispatch] = useReducer(reducer, initial);
+export function RunLog({ runId, initialStatus, initialCostUsd, canControl }: Props) {
+  const [state, dispatch] = useReducer(reducer, {
+    ...initial,
+    costUsd: initialCostUsd,
+  });
   const scroller = useRef<HTMLDivElement | null>(null);
+  const [stopError, setStopError] = useState<string | null>(null);
+  const [stopPending, startStop] = useTransition();
 
   useEffect(() => {
     const es = new EventSource(`/api/runs/${runId}/stream`, { withCredentials: true });
@@ -76,33 +114,80 @@ export function RunLog({ runId }: Props) {
     return () => es.close();
   }, [runId]);
 
-  // Auto-scroll to bottom on new events.
   useEffect(() => {
     const el = scroller.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [state.events.length]);
 
+  const isRunning = !state.ended && initialStatus === "running";
+  const displayStatus = state.ended
+    ? state.ended.reason
+      ? `${state.ended.status} · ${state.ended.reason}`
+      : state.ended.status
+    : state.connected
+      ? "streaming"
+      : "reconnecting";
+
+  const stop = () => {
+    setStopError(null);
+    startStop(async () => {
+      const res = await fetch(`/api/runs/${runId}/stop`, { method: "POST" });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { message?: string };
+        setStopError(body.message ?? `HTTP ${res.status}`);
+      }
+    });
+  };
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-[color:var(--color-border)] px-3 py-2 text-xs">
-        <span className="font-mono">run {runId.slice(0, 8)}</span>
         <span className="flex items-center gap-2">
           <span
             className={`inline-block h-2 w-2 rounded-full ${state.connected ? "bg-green-500" : "bg-amber-500"}`}
             title={state.connected ? "live" : "reconnecting"}
           />
-          {state.ended ? (
-            <span className="rounded bg-[color:var(--color-muted)] px-2 py-0.5 font-medium">
-              {state.ended.status}
-              {state.ended.reason ? ` · ${state.ended.reason}` : ""}
-            </span>
-          ) : (
-            <span className="text-[color:var(--color-muted-foreground)]">streaming</span>
-          )}
+          <span className="font-mono">run {runId.slice(0, 8)}</span>
+          <CostBadge usd={state.costUsd} costState={state.costState} />
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="rounded bg-[color:var(--color-muted)] px-2 py-0.5 font-medium">
+            {displayStatus}
+          </span>
+          {isRunning && canControl ? (
+            <button
+              type="button"
+              onClick={stop}
+              disabled={stopPending}
+              className="rounded border border-red-500/40 px-2 py-0.5 text-red-700 hover:bg-red-500/10 disabled:opacity-50"
+            >
+              {stopPending ? "Stopping…" : "Stop"}
+            </button>
+          ) : null}
         </span>
       </div>
 
-      <div ref={scroller} className="flex-1 overflow-y-auto px-3 py-2 font-mono text-xs leading-relaxed">
+      {stopError ? (
+        <div className="border-b border-red-500/40 bg-red-500/10 px-3 py-1 text-xs text-red-700">
+          Stop failed: {stopError}
+        </div>
+      ) : null}
+
+      {state.costState === "warn" && !state.ended ? (
+        <div className="border-b border-amber-500/40 bg-amber-500/10 px-3 py-1 text-xs text-amber-800">
+          ⚠ Cost crossed ${state.costUsd.toFixed(2)} — hard-stop at $15.
+        </div>
+      ) : null}
+      {state.costState === "kill" || state.ended?.status === "cost_killed" ? (
+        <div className="border-b border-red-500/40 bg-red-500/10 px-3 py-1 text-xs text-red-700">
+          ✘ Cost cap reached (${state.costUsd.toFixed(2)}). Run terminated.
+        </div>
+      ) : null}
+
+      <div
+        ref={scroller}
+        className="flex-1 overflow-y-auto px-3 py-2 font-mono text-xs leading-relaxed"
+      >
         {state.events.length === 0 ? (
           <p className="text-[color:var(--color-muted-foreground)]">Waiting for events…</p>
         ) : (
@@ -110,6 +195,20 @@ export function RunLog({ runId }: Props) {
         )}
       </div>
     </div>
+  );
+}
+
+function CostBadge({ usd, costState }: { usd: number; costState: State["costState"] }) {
+  const cls =
+    costState === "kill"
+      ? "bg-red-500/15 text-red-700 border-red-500/40"
+      : costState === "warn"
+        ? "bg-amber-500/15 text-amber-800 border-amber-500/40"
+        : "bg-[color:var(--color-muted)] text-[color:var(--color-muted-foreground)] border-[color:var(--color-border)]";
+  return (
+    <span className={`rounded border px-1.5 py-0.5 font-mono text-[10px] ${cls}`} title="running cost">
+      ${usd.toFixed(4)}
+    </span>
   );
 }
 
@@ -148,7 +247,10 @@ function EventLine({ ev }: { ev: EventRow }) {
           ))}
           {tools.map((t, i) => (
             <div key={i} className="mt-1 text-blue-700">
-              🔧 {t.name} {t.summary ? <span className="text-[color:var(--color-muted-foreground)]">{t.summary}</span> : null}
+              🔧 {t.name}{" "}
+              {t.summary ? (
+                <span className="text-[color:var(--color-muted-foreground)]">{t.summary}</span>
+              ) : null}
             </div>
           ))}
         </div>
@@ -171,7 +273,14 @@ function EventLine({ ev }: { ev: EventRow }) {
       );
     }
     case "server": {
-      const p = ev.payload as { kind?: string; line?: string; error?: string; code?: number };
+      const p = ev.payload as {
+        kind?: string;
+        line?: string;
+        error?: string;
+        code?: number;
+        usdCumulative?: number;
+      };
+      if (p.kind === "cost_tick") return null; // don't spam the log; cost is shown in the badge
       return (
         <div className="mb-1 text-[color:var(--color-muted-foreground)]">
           {p.kind === "spawned" && "▶ spawned"}
@@ -179,11 +288,13 @@ function EventLine({ ev }: { ev: EventRow }) {
           {p.kind === "spawn_error" && `✘ ${p.error}`}
           {p.kind === "stderr" && `stderr: ${p.line}`}
           {p.kind === "parse_error" && `parse error`}
+          {p.kind === "cost_warn" && `⚠ cost warning at $${(p.usdCumulative ?? 0).toFixed(2)}`}
+          {p.kind === "cost_killed" && `✘ cost cap at $${(p.usdCumulative ?? 0).toFixed(2)}`}
         </div>
       );
     }
     case "stream_event":
-      return null; // partial-message deltas; skip in v1
+      return null;
     default:
       return null;
   }

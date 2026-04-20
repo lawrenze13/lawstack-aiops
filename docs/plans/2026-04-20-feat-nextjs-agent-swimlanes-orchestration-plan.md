@@ -524,12 +524,16 @@ On boot, registry rows are upserted into the `agent_config` cache table with a `
 - [x] Card detail page `/cards/[id]` with RunStarter + RunLog
 - [x] Board cards click through to detail page
 
-**Phase 2B — Deferred:**
-- [ ] Cost guardrails ($5 warn / $15 hard kill) wired end-to-end
-- [ ] `app/api/runs/[id]/{message,stop}/route.ts` + ChatBox UI + Stop button
-- [ ] Crash-recovery banner + Resume action (DB rows interrupted on boot via reconciler — UI surfaces it)
-- [ ] CostBadge live counter in card detail header
+**Phase 2B1 — Control loop (landed):**
+- [x] Cost guardrails ($5 warn / $15 hard kill) wired end-to-end *(server/worker/costMeter.ts + agents/pricing.ts; observes `assistant.message.usage` per frame, emits cost_warn/cost_killed server events)*
+- [x] `app/api/runs/[id]/stop/route.ts` + Stop button *(SIGTERM→5s→SIGKILL via runRegistry.stop('user'); owner/admin only)*
+- [x] Crash-recovery Resume banner *(surfaces interrupted runs with a Resume button that POSTs a new run with resumeSessionId)*
+- [x] CostBadge live counter in card detail header *(green → yellow at $5 → red at $15; inline in RunLog)*
+
+**Phase 2B2 — Deferred:**
+- [ ] `app/api/runs/[id]/message/route.ts` + ChatBox UI *(claude --resume injection with per-run PQueue serialiser)*
 - [ ] Auto-advance between lanes on `result` event
+- [ ] `ce:review` prompt split (plan-lane variant vs review-lane variant)
 
 - **Deliverable (2A landed):** click "Run Brainstorm" on a card; live tool-use events render in the run log; refresh-resume via Last-Event-ID works
 - **Success criteria (2A):** AC-2 (replay) passes; AC-1 (crash recovery) needs 2B's UI banner; AC-5 (cost cap) needs 2B's costMeter; AC-8 (stuck runs) needs 2B's admin ops page

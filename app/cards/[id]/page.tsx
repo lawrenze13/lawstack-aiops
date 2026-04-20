@@ -6,6 +6,7 @@ import { db } from "@/server/db/client";
 import { runs, tasks } from "@/server/db/schema";
 import { RunLog } from "@/components/card-detail/RunLog";
 import { RunStarter } from "@/components/card-detail/RunStarter";
+import { ResumeBanner } from "@/components/card-detail/ResumeBanner";
 import { defaultAgentForLane } from "@/server/agents/registry";
 
 export const runtime = "nodejs";
@@ -72,6 +73,21 @@ export default async function CardDetailPage({ params }: Props) {
         </div>
       </header>
 
+      {currentRun && currentRun.status === "interrupted" && currentRun.lane !== "pr" ? (
+        <ResumeBanner
+          taskId={task.id}
+          runId={currentRun.id}
+          lane={currentRun.lane as "brainstorm" | "plan" | "review"}
+          agentId={currentRun.agentId}
+          claudeSessionId={currentRun.claudeSessionId}
+          killedReason={currentRun.killedReason}
+          canControl={
+            (session.user as { role?: string } | undefined)?.role === "admin" ||
+            task.ownerId === (session.user as { id?: string } | undefined)?.id
+          }
+        />
+      ) : null}
+
       <section className="border-b border-[color:var(--color-border)] px-6 py-3">
         <RunStarter taskId={task.id} options={starterOptions} />
       </section>
@@ -113,7 +129,15 @@ export default async function CardDetailPage({ params }: Props) {
 
         <div className="col-span-8 min-h-0 rounded-lg border border-[color:var(--color-border)]">
           {currentRun ? (
-            <RunLog runId={currentRun.id} />
+            <RunLog
+              runId={currentRun.id}
+              initialStatus={currentRun.status}
+              initialCostUsd={currentRun.costUsdMicros / 1_000_000}
+              canControl={
+                (session.user as { role?: string } | undefined)?.role === "admin" ||
+                task.ownerId === (session.user as { id?: string } | undefined)?.id
+              }
+            />
           ) : (
             <p className="p-6 text-sm text-[color:var(--color-muted-foreground)]">
               No active run for this card. Start one above to see live agent output here.
