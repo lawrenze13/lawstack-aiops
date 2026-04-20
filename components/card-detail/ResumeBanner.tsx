@@ -49,11 +49,11 @@ export function ResumeBanner({
     <div className="mx-6 mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900">
       <div className="flex items-center justify-between">
         <div>
-          <strong>Run interrupted.</strong>{" "}
+          <strong>This run stopped without finishing.</strong>{" "}
           <span className="text-amber-800">
             {killedReason === "server_restart"
-              ? "Server restarted mid-run. The Claude session is preserved; click Resume to continue."
-              : `Reason: ${killedReason ?? "unknown"}.`}
+              ? "The dev server restarted mid-run (or the Node process exited). The subprocess is gone, but the Claude session id is saved — click Resume to pick up where it left off."
+              : `No live subprocess is attached. Reason: ${killedReason ?? "unknown"}. The events below are historical.`}
           </span>
           <div className="mt-0.5 font-mono text-xs text-amber-700">
             run {runId.slice(0, 8)} · lane={lane} · agent={agentId}

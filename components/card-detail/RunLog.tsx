@@ -23,12 +23,21 @@ type State = {
   costUsd: number;
   /** "warn" when $5 crossed, "kill" when $15 enforced. */
   costState: "ok" | "warn" | "kill";
+  /**
+   * Phase of the SSE stream:
+   *  - 'initial'  — not yet connected
+   *  - 'replay'   — receiving historical events from the DB
+   *  - 'live'     — past replay; any new events are from a running subprocess
+   *  - 'archived' — run is finalised, all events are historical, stream closed
+   */
+  phase: "initial" | "replay" | "live" | "archived";
 };
 
 type Action =
   | { kind: "event"; row: EventRow }
   | { kind: "end"; status: string; reason: string | null }
-  | { kind: "connected"; on: boolean };
+  | { kind: "connected"; on: boolean }
+  | { kind: "phase"; phase: State["phase"] };
 
 function reducer(state: State, action: Action): State {
   switch (action.kind) {
@@ -53,10 +62,19 @@ function reducer(state: State, action: Action): State {
       }
       return next;
     }
-    case "end":
-      return { ...state, ended: { status: action.status, reason: action.reason } };
+    case "end": {
+      // If we arrive at an end event, the stream is closing. Whether the run
+      // is live-finished or historical depends on the status.
+      return {
+        ...state,
+        ended: { status: action.status, reason: action.reason },
+        phase: "archived",
+      };
+    }
     case "connected":
       return { ...state, connected: action.on };
+    case "phase":
+      return { ...state, phase: action.phase };
   }
 }
 
@@ -66,6 +84,7 @@ const initial: State = {
   connected: false,
   costUsd: 0,
   costState: "ok",
+  phase: "initial",
 };
 
 type Props = {
@@ -87,6 +106,14 @@ export function RunLog({ runId, initialStatus, initialCostUsd, canControl }: Pro
 
   useEffect(() => {
     const es = new EventSource(`/api/runs/${runId}/stream`, { withCredentials: true });
+    // Flip to 'live' 1s after the initial burst stops arriving. The server
+    // sends historical messages back-to-back with no pause; a 1s idle gap is
+    // a reliable heuristic for "replay done, next event is live."
+    let replayIdleTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleLive = () => {
+      if (replayIdleTimer) clearTimeout(replayIdleTimer);
+      replayIdleTimer = setTimeout(() => dispatch({ kind: "phase", phase: "live" }), 1000);
+    };
 
     const handler = (type: EventRow["type"]) => (e: MessageEvent) => {
       let payload: unknown = null;
@@ -98,20 +125,30 @@ export function RunLog({ runId, initialStatus, initialCostUsd, canControl }: Pro
       const seq = Number(e.lastEventId) || 0;
       if (type === "end") {
         const p = payload as { status?: string; reason?: string | null };
+        if (replayIdleTimer) clearTimeout(replayIdleTimer);
         dispatch({ kind: "end", status: p.status ?? "unknown", reason: p.reason ?? null });
+        // Close the EventSource to stop auto-reconnect (server has closed too).
+        es.close();
         return;
       }
       dispatch({ kind: "event", row: { seq, type, payload } });
+      scheduleLive();
     };
 
     for (const t of ["system", "assistant", "user", "stream_event", "result", "server", "end"] as const) {
       es.addEventListener(t, handler(t));
     }
 
-    es.onopen = () => dispatch({ kind: "connected", on: true });
+    es.onopen = () => {
+      dispatch({ kind: "connected", on: true });
+      dispatch({ kind: "phase", phase: "replay" });
+    };
     es.onerror = () => dispatch({ kind: "connected", on: false });
 
-    return () => es.close();
+    return () => {
+      if (replayIdleTimer) clearTimeout(replayIdleTimer);
+      es.close();
+    };
   }, [runId]);
 
   useEffect(() => {
@@ -119,14 +156,36 @@ export function RunLog({ runId, initialStatus, initialCostUsd, canControl }: Pro
     if (el) el.scrollTop = el.scrollHeight;
   }, [state.events.length]);
 
+  // The run is truly live (new events may still arrive) only if the DB says
+  // running AND we haven't seen an `end` SSE event closing the stream.
   const isRunning = !state.ended && initialStatus === "running";
+
+  // "replaying" takes precedence so user sees it even for runs still live.
   const displayStatus = state.ended
     ? state.ended.reason
       ? `${state.ended.status} · ${state.ended.reason}`
       : state.ended.status
-    : state.connected
-      ? "streaming"
-      : "reconnecting";
+    : state.phase === "replay"
+      ? "replaying history"
+      : state.connected
+        ? "streaming"
+        : "reconnecting";
+
+  // Dot color: green for truly live, blue for replay, gray for archived, amber for reconnecting.
+  const dotClass = state.ended
+    ? "bg-gray-400"
+    : state.phase === "replay"
+      ? "bg-blue-500"
+      : state.connected
+        ? "bg-green-500"
+        : "bg-amber-500";
+  const dotTitle = state.ended
+    ? "archived"
+    : state.phase === "replay"
+      ? "replaying history"
+      : state.connected
+        ? "live"
+        : "reconnecting";
 
   const stop = () => {
     setStopError(null);
@@ -144,8 +203,8 @@ export function RunLog({ runId, initialStatus, initialCostUsd, canControl }: Pro
       <div className="flex items-center justify-between border-b border-[color:var(--color-border)] px-3 py-2 text-xs">
         <span className="flex items-center gap-2">
           <span
-            className={`inline-block h-2 w-2 rounded-full ${state.connected ? "bg-green-500" : "bg-amber-500"}`}
-            title={state.connected ? "live" : "reconnecting"}
+            className={`inline-block h-2 w-2 rounded-full ${dotClass}`}
+            title={dotTitle}
           />
           <span className="font-mono">run {runId.slice(0, 8)}</span>
           <CostBadge usd={state.costUsd} costState={state.costState} />
@@ -173,6 +232,17 @@ export function RunLog({ runId, initialStatus, initialCostUsd, canControl }: Pro
         </div>
       ) : null}
 
+      {!isRunning && initialStatus !== "running" ? (
+        <div className="border-b border-[color:var(--color-border)] bg-[color:var(--color-muted)]/40 px-3 py-1 text-xs text-[color:var(--color-muted-foreground)]">
+          📼 This run finished. The events below are a log of what happened —
+          no new events are being generated.
+        </div>
+      ) : state.phase === "replay" ? (
+        <div className="border-b border-blue-500/40 bg-blue-500/10 px-3 py-1 text-xs text-blue-900">
+          📼 Replaying history from this run… new events will stream in after.
+        </div>
+      ) : null}
+
       {state.costState === "warn" && !state.ended ? (
         <div className="border-b border-amber-500/40 bg-amber-500/10 px-3 py-1 text-xs text-amber-800">
           ⚠ Cost crossed ${state.costUsd.toFixed(2)} — hard-stop at $15.
@@ -193,6 +263,12 @@ export function RunLog({ runId, initialStatus, initialCostUsd, canControl }: Pro
         ) : (
           state.events.map((e) => <EventLine key={e.seq} ev={e} />)
         )}
+        {state.ended ? (
+          <div className="mt-3 border-t border-dashed border-[color:var(--color-border)] pt-2 text-[10px] uppercase tracking-wide text-[color:var(--color-muted-foreground)]">
+            — end of log — {state.ended.status}
+            {state.ended.reason ? ` (${state.ended.reason})` : ""}
+          </div>
+        ) : null}
       </div>
     </div>
   );
