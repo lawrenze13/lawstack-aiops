@@ -32,6 +32,8 @@ export type SpawnAgentParams = {
   /** Per-run cost cap overrides. Defaults if unset. */
   costWarnUsd?: number;
   costKillUsd?: number;
+  /** --permission-mode passed to the Claude CLI. Default 'acceptEdits'. */
+  permissionMode?: "acceptEdits" | "bypassPermissions";
 };
 
 const KILL_GRACE_MS = 5000;
@@ -54,7 +56,7 @@ export function spawnAgent(p: SpawnAgentParams): void {
     "stream-json",
     "--verbose",
     "--permission-mode",
-    "acceptEdits",
+    p.permissionMode ?? "acceptEdits",
     "--model",
     p.model,
   ];

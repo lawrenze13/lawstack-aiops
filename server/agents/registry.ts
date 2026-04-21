@@ -9,6 +9,8 @@ import { createHash } from "node:crypto";
 
 export type Lane = "brainstorm" | "plan" | "review" | "pr" | "implement";
 
+export type PermissionMode = "acceptEdits" | "bypassPermissions";
+
 export type AgentConfig = {
   id: string;
   name: string;
@@ -19,6 +21,17 @@ export type AgentConfig = {
   model: string;
   /** Hard cap on Claude turns to keep cost bounded. */
   maxTurns: number;
+  /**
+   * Permission mode passed to `claude --permission-mode`:
+   *  - `acceptEdits` (default): auto-accept file edits, prompt for Bash.
+   *    Planning agents only write markdown files, so this is enough.
+   *  - `bypassPermissions`: auto-accept everything including Bash.
+   *    Required for `ce:work` which runs git + build/test commands
+   *    and would otherwise stall on every permission prompt.
+   * Bounded by the subprocess cwd (the worktree) + minimised env so
+   * the agent can't reach outside.
+   */
+  permissionMode?: PermissionMode;
   /**
    * Per-agent cost-cap overrides. Implementation agents (`ce:work`) run
    * longer than planning agents, so they get higher caps. Falls through
@@ -424,6 +437,10 @@ export const AGENTS = {
     // real code. Implementation is where model quality matters most.
     model: "claude-opus-4-7",
     maxTurns: 120,
+    // Bypass permission prompts — ce:work needs `git add/commit/push`
+    // plus likely test/build commands. Bounded to the worktree + minimised
+    // env in spawnAgent.
+    permissionMode: "bypassPermissions",
     // Implementation is expensive. Raise caps so a real ticket fits in
     // one run without tripping the generic $5/$15.
     costWarnUsd: 10,

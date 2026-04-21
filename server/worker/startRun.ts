@@ -230,6 +230,7 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
     displayUserMessage: params.displayUserMessage,
     costWarnUsd: agent.costWarnUsd,
     costKillUsd: agent.costKillUsd,
+    permissionMode: agent.permissionMode,
   });
 
   return { runId, lane: params.lane, agentId: agent.id };
