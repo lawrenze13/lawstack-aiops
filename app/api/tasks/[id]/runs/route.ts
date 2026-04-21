@@ -15,6 +15,8 @@ const Body = z.object({
   resumeSessionId: z.string().min(1).optional(),
   /** When true and lane==='plan', builds the amendment prompt. */
   amendFromReview: z.boolean().optional(),
+  /** When true and lane==='implement', agent pauses before each Bash. */
+  interactive: z.boolean().optional(),
 });
 
 export const POST = withAuth(async ({ req, user }) => {
@@ -36,6 +38,7 @@ export const POST = withAuth(async ({ req, user }) => {
     agentId: body.agentId,
     resumeSessionId: body.resumeSessionId,
     amendFromReview: body.amendFromReview,
+    interactive: body.interactive,
     initiator: { userId: user.id, kind: "user" },
   });
 

@@ -64,6 +64,12 @@ export type PromptContext = {
    * AMEND loops where the reviewer keeps finding new-but-P2 issues.
    */
   priorReviewCount?: number;
+  /**
+   * Interactive mode: when true (for ce:work), the prompt instructs the
+   * agent to pause via NEEDS_INPUT before running any Bash command and
+   * wait for human approval. See workPrompt.
+   */
+  interactive?: boolean;
 };
 
 const brainstormPrompt = (ctx: PromptContext): string => `You are analyzing Jira ticket ${ctx.jiraKey} in this codebase and producing a brainstorm document.
@@ -310,6 +316,38 @@ ${ctx.recentCommits}
 \`\`\``
     : "";
 
+  const interactiveBlock = ctx.interactive
+    ? `
+
+## ⚠ INTERACTIVE MODE — confirm every Bash command
+
+You are running in **interactive mode**. Before executing ANY shell
+command via the Bash tool (including git, npm, tests, builds, anything),
+you MUST pause and ask the user for approval via NEEDS_INPUT. Do not
+run the command first and ask forgiveness.
+
+Format your permission request like this (literal — do not wrap in code block):
+
+    NEEDS_INPUT:
+    Permission to run: \`<the exact command>\`
+
+    <one short line of why this is the right next step>
+
+    Reply **yes** to run it, **no** to skip, or suggest an alternative.
+
+After the user replies **yes**, run the command. If they reply **no** or
+with an alternative, adjust and proceed. You may batch related commands
+in one request (e.g. "git add X && git commit -m ..." as one unit) but
+do NOT sneak commands in without asking.
+
+Reads, greps, globs, and file Edits do NOT need permission — those are
+auto-allowed for exploration and code modification. Only shell commands
+need confirmation.
+
+This mode trades speed for visibility. The user wants to see every
+action before it happens.`
+    : "";
+
   return `You are implementing Jira ticket ${ctx.jiraKey} against the repository in this worktree.
 
 Use the compound-engineering:ce:work approach.
@@ -327,7 +365,7 @@ Plan to implement (PRIMARY INPUT):
 ${plan || "(no plan artifact — STOP and emit NEEDS_INPUT asking for a plan first)"}
 
 Review notes (validated against the codebase):
-${review || "(no review artifact — proceed but flag anything the plan doesn't cover)"}${commitsBlock}
+${review || "(no review artifact — proceed but flag anything the plan doesn't cover)"}${commitsBlock}${interactiveBlock}
 
 ## Your job
 
@@ -351,7 +389,7 @@ git push
 
 Do NOT batch many unrelated changes into one commit. Do NOT force-push.
 
-## When to pause and ask
+## When to pause and ask${ctx.interactive ? " (beyond permission requests)" : ""}
 
 If you hit a real decision point the Plan doesn't cover, STOP and ask the
 user. End your turn with exactly this marker on its own line:

@@ -6,19 +6,22 @@ import { useToast } from "@/components/toast/ToastHost";
 
 type Props = {
   taskId: string;
-  /** True when PR has been opened (approve pipeline reached pr_opened or jira_notified). */
   prOpened: boolean;
-  /** True when an implement run has already been started on this task. */
   implementStarted: boolean;
-  /** True when any run on this card is currently running (blocks spawn). */
   runActive: boolean;
   canControl: boolean;
 };
 
 /**
- * Starts a ce:work implementation run. Only shown after Approve & PR has
- * succeeded — the human should review the draft PR's planning docs
- * before agents start committing real code.
+ * Starts a ce:work implementation run. Only shown after Approve & PR
+ * has succeeded. Two modes:
+ *
+ *   - **Interactive** (default) — agent pauses via NEEDS_INPUT before
+ *     every Bash command and waits for the user to approve via chat.
+ *     Slower but user is in the loop for every shell action.
+ *
+ *   - **Autopilot** — agent runs everything without confirmation. Use
+ *     when you trust the plan + review and want throughput.
  */
 export function ImplementButton({
   taskId,
@@ -34,40 +37,46 @@ export function ImplementButton({
 
   if (!canControl) return null;
   if (!prOpened) return null;
-  // Once an implement run exists the button hides — card header shows
-  // the run directly via the runs sidebar.
   if (implementStarted) return null;
 
   const disabled = pending || runActive;
+
+  const runImplement = (interactive: boolean) => {
+    setErr(null);
+    start(async () => {
+      const res = await fetch(`/api/tasks/${taskId}/runs`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          lane: "implement",
+          agentId: "ce:work",
+          interactive,
+        }),
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { message?: string };
+        const msg = j.message ?? `HTTP ${res.status}`;
+        setErr(msg);
+        toast.push({ kind: "error", title: "Implement failed", body: msg });
+        return;
+      }
+      toast.push({
+        kind: "info",
+        title: interactive ? "Interactive implement started" : "Autopilot implement started",
+        body: interactive
+          ? "Agent will pause via chat before each Bash command."
+          : "Agent runs on its own; commits push automatically.",
+      });
+      router.refresh();
+    });
+  };
 
   return (
     <div className="flex items-center gap-2">
       <button
         type="button"
         disabled={disabled}
-        onClick={() => {
-          setErr(null);
-          start(async () => {
-            const res = await fetch(`/api/tasks/${taskId}/runs`, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ lane: "implement", agentId: "ce:work" }),
-            });
-            if (!res.ok) {
-              const j = (await res.json().catch(() => ({}))) as { message?: string };
-              const msg = j.message ?? `HTTP ${res.status}`;
-              setErr(msg);
-              toast.push({ kind: "error", title: "Implement failed", body: msg });
-              return;
-            }
-            toast.push({
-              kind: "info",
-              title: "Implementation started",
-              body: "ce:work will commit + push incrementally.",
-            });
-            router.refresh();
-          });
-        }}
+        onClick={() => runImplement(true)}
         className={`rounded-md px-3 py-1.5 text-xs font-semibold shadow-sm ${
           disabled
             ? "bg-[color:var(--color-muted)] text-[color:var(--color-muted-foreground)] cursor-not-allowed"
@@ -75,11 +84,24 @@ export function ImplementButton({
         }`}
         title={
           runActive
-            ? "A run is active on this card — wait for it to finish or click Stop first."
-            : "Start ce:work to implement the approved plan. Agent will commit + push to the feature branch and pause with NEEDS_INPUT when it needs clarification."
+            ? "A run is active — wait or Stop first."
+            : "Interactive: agent pauses via chat before each Bash command. You approve/deny each shell action."
         }
       >
-        {pending ? "Starting…" : runActive ? "▶ Implement (wait)" : "▶ Implement"}
+        {pending ? "Starting…" : runActive ? "▶ Implement (wait)" : "▶ Implement · Interactive"}
+      </button>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => runImplement(false)}
+        className={`rounded-md border px-2.5 py-1.5 text-xs ${
+          disabled
+            ? "border-[color:var(--color-border)] text-[color:var(--color-muted-foreground)] cursor-not-allowed"
+            : "border-[color:var(--color-border)] text-[color:var(--color-foreground)] hover:bg-[color:var(--color-muted)]"
+        }`}
+        title="Autopilot: agent runs without confirming each shell command. Faster but hands-off."
+      >
+        ⚡ Autopilot
       </button>
       {err ? <span className="text-xs text-red-700">{err}</span> : null}
     </div>

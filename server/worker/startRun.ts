@@ -49,6 +49,14 @@ export type StartRunParams = {
    * Only meaningful for lane='plan', agentId='ce:plan'.
    */
   amendFromReview?: boolean;
+  /**
+   * Interactive mode — only meaningful for `ce:work`. When true the agent
+   * prompt instructs the agent to pause via NEEDS_INPUT before every Bash
+   * command. Still uses `bypassPermissions` at the CLI level so the
+   * approved commands actually run; the in-the-loop-ness is enforced by
+   * the prompt contract, not by the permission machinery.
+   */
+  interactive?: boolean;
 };
 
 export type StartRunResult = {
@@ -143,6 +151,7 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
     priorArtifacts: priorArtifacts.map((a) => ({ kind: a.kind, markdown: a.markdown })),
     recentCommits,
     priorReviewCount,
+    interactive: params.interactive ?? false,
   };
 
   const prompt = params.overridePrompt
