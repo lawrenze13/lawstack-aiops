@@ -10,7 +10,7 @@ import type { Lane } from "@/server/agents/registry";
 export const runtime = "nodejs";
 
 const Body = z.object({
-  lane: z.enum(["brainstorm", "plan", "review", "pr"]),
+  lane: z.enum(["brainstorm", "plan", "review", "pr", "implement"]),
   agentId: z.string().min(1),
   resumeSessionId: z.string().min(1).optional(),
   /** When true and lane==='plan', builds the amendment prompt. */
