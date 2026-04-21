@@ -9,17 +9,20 @@ import { audit } from "@/server/auth/audit";
 
 // Per-lane expected artifact path + kind. When an agent run completes, we
 // look for this file in the worktree and promote it to a DB row.
-const LANE_TO_KIND: Record<string, { kind: "brainstorm" | "plan" | "review"; dir: string }> = {
+type ArtifactKind = "brainstorm" | "plan" | "review" | "implementation";
+const LANE_TO_KIND: Record<string, { kind: ArtifactKind; dir: string }> = {
   brainstorm: { kind: "brainstorm", dir: "docs/brainstorms" },
   plan: { kind: "plan", dir: "docs/plans" },
   review: { kind: "review", dir: "docs/reviews" },
+  implement: { kind: "implementation", dir: "docs/implementation" },
 };
 
 // Downstream order: re-running X makes these stale.
-const DOWNSTREAM: Record<string, Array<"brainstorm" | "plan" | "review">> = {
+const DOWNSTREAM: Record<string, ArtifactKind[]> = {
   brainstorm: ["plan", "review"],
   plan: ["review"],
   review: [],
+  implementation: [],
 };
 
 /**
@@ -99,7 +102,7 @@ export async function persistArtifactsForRun(runId: string): Promise<void> {
 async function upsertArtifact(opts: {
   runId: string;
   taskId: string;
-  kind: "brainstorm" | "plan" | "review";
+  kind: ArtifactKind;
   filename: string;
   fullPath: string;
 }): Promise<void> {

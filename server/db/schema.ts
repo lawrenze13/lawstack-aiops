@@ -207,7 +207,9 @@ export const artifacts = sqliteTable(
     taskId: text("task_id")
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
-    kind: text("kind", { enum: ["brainstorm", "plan", "review"] }).notNull(),
+    kind: text("kind", {
+      enum: ["brainstorm", "plan", "review", "implementation"],
+    }).notNull(),
     filename: text("filename").notNull(),
     markdown: text("markdown").notNull(),
     isApproved: integer("is_approved", { mode: "boolean" }).notNull().default(false),

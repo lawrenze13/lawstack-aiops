@@ -897,6 +897,10 @@ function ServerLine({ payload }: { payload: unknown }) {
         return `⚠ cost warning at $${(p.usdCumulative ?? 0).toFixed(2)}`;
       case "cost_killed":
         return `✘ cost cap at $${(p.usdCumulative ?? 0).toFixed(2)}`;
+      case "implement_finalisation_error": {
+        const ps = p as { failedAt?: string; error?: string };
+        return `✘ finalisation failed at ${ps.failedAt ?? "?"}: ${ps.error ?? ""}`;
+      }
       default:
         return null;
     }

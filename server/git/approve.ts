@@ -337,7 +337,10 @@ function latestArtifactPerKind(taskId: string): Map<
     if (latest[0])
       out.set(kind, {
         id: latest[0].id,
-        kind: latest[0].kind,
+        // Approve's gate only uses the three planning kinds, so narrow
+        // here. The schema enum also includes 'implementation' (Phase 5B)
+        // which is never fetched in this loop.
+        kind: latest[0].kind as "brainstorm" | "plan" | "review",
         filename: latest[0].filename,
         markdown: latest[0].markdown,
         isStale: latest[0].isStale,

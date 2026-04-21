@@ -760,12 +760,12 @@ This means a CLI script, a future MCP tool, or another Claude Code agent can dri
 - [x] **AC-20 (implement cost cap):** Hard kill at $30 (raised from standard $15); worktree + already-pushed commits preserved.
 - [ ] **AC-21 (implementation summary):** On clean completion, `docs/implementation/<key>-implementation.md` artifact produced summarising commits + test changes + manual-verify list.
 
-**Phase 5B — Implement completion hooks (to build):**
-- [ ] **AC-22 (final safety push):** Any uncommitted/unpushed work in the worktree is safety-committed and pushed before external effects.
-- [ ] **AC-23 (Jira implementation comment):** Jira comment posted summarising commits + manual-verify list with live PR link; audit-log dedupe prevents duplicate posts.
-- [ ] **AC-24 (Jira "Code Review" transition):** Status transitions to the configured review state (`JIRA_REVIEW_STATUS`, default `"Code Review"`); silent no-op when not allowed from current workflow state.
-- [ ] **AC-25 (lane to done):** Task `current_lane` moves to `done` after successful finalisation.
-- [ ] **AC-26 (finalisation rollback):** Any step failure leaves the card at `implement` with a surfaced error, not stranded.
+**Phase 5B — Implement completion hooks (landed):**
+- [x] **AC-22 (final safety push):** Any uncommitted/unpushed work in the worktree is safety-committed and pushed before external effects. *(server/git/implementComplete.ts step 1: `git status --porcelain` → `git add -A` + commit "chore: implementation cleanup" → `git push`; fallback to `-u origin <branch>`.)*
+- [x] **AC-23 (Jira implementation comment):** Jira comment posted summarising commits + manual-verify list with live PR link; audit-log dedupe prevents duplicate posts. *(implementCommentDoc ADF: PR URL, commits bulleted from `git log origin/main..HEAD`, summary + sections from the implementation artifact. Dedupe via hasPriorAudit('jira.implement_comment_posted').)*
+- [x] **AC-24 (Jira "Code Review" transition):** Status transitions to the configured review state (`JIRA_REVIEW_STATUS`, default `"Code Review"`); silent no-op when not allowed from current workflow state. *(Reuses transitionIssueToName; non-fatal on failure → warning + audit row.)*
+- [x] **AC-25 (lane to done):** Task `current_lane` moves to `done` after successful finalisation. *(Final UPDATE; audit task.implementation_complete.)*
+- [x] **AC-26 (finalisation rollback):** Any step failure leaves the card at `implement` with a surfaced error. *(implementComplete returns `{ ok: false, failedAt, error }` on step failure; spawnAgent emits a `server` event kind='implement_finalisation_error' which RunLog renders; lane NOT moved to done.)*
 
 ### Non-functional requirements
 

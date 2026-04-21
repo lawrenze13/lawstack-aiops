@@ -438,6 +438,45 @@ async function finalize(
       console.error("[spawnAgent] amend comment failed", { runId, err });
     }
 
+    // Implement-lane completion → run the 5-step finalisation
+    // (safety push + Jira comment + status transition + lane to done).
+    // Skipped for other lanes and for non-completed statuses.
+    try {
+      const run = db
+        .select({ taskId: runs.taskId, lane: runs.lane })
+        .from(runs)
+        .where(eq(runs.id, runId))
+        .get();
+      if (run?.lane === "implement") {
+        const { implementComplete } = await import("@/server/git/implementComplete");
+        const result = await implementComplete(runId, run.taskId);
+        if (!result.ok) {
+          // Persist the failure as a server event so the RunLog surfaces
+          // it. The task stays at 'implement' lane (no rollback needed;
+          // implementComplete only moves lane to 'done' on success).
+          const bus = getRunBus(runId);
+          bus.emit("event", {
+            seq: 0,
+            type: "server",
+            payload: {
+              kind: "implement_finalisation_error",
+              failedAt: result.failedAt,
+              error: result.error,
+            },
+          });
+          audit({
+            action: "implement.finalisation_failed",
+            taskId: run.taskId,
+            runId,
+            payload: { failedAt: result.failedAt, error: result.error },
+          });
+        }
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[spawnAgent] implementComplete failed", { runId, err });
+    }
+
     try {
       const { maybeAutoAdvance } = await import("./autoAdvance");
       await maybeAutoAdvance(runId);
