@@ -32,6 +32,11 @@ export type PromptContext = {
   description: string;
   /** Markdown bodies of upstream artifacts (e.g. brainstorm.md fed into Plan). */
   priorArtifacts?: { kind: string; markdown: string }[];
+  /**
+   * Output of `git log -20 --oneline origin/main` — injected into Plan and
+   * Review prompts so the agent has freshness context about the codebase.
+   */
+  recentCommits?: string;
 };
 
 const brainstormPrompt = (ctx: PromptContext): string => `You are analyzing Jira ticket ${ctx.jiraKey} in this codebase and producing a brainstorm document.
@@ -60,6 +65,14 @@ Rules:
 
 const planPrompt = (ctx: PromptContext): string => {
   const brainstorm = ctx.priorArtifacts?.find((a) => a.kind === "brainstorm")?.markdown ?? "";
+  const commitsBlock = ctx.recentCommits
+    ? `
+
+Recent commits on main (for freshness context; verify assumptions about current code rather than relying on these):
+\`\`\`
+${ctx.recentCommits}
+\`\`\``
+    : "";
   return `You are producing an implementation plan for Jira ticket ${ctx.jiraKey} based on the brainstorm below.
 
 Use the compound-engineering:ce:plan approach.
@@ -71,7 +84,7 @@ Brainstorm:
 ${brainstorm || "(no brainstorm provided — produce a plan grounded in the description below)"}
 
 Description:
-${ctx.description || "(no description provided)"}
+${ctx.description || "(no description provided)"}${commitsBlock}
 
 Produce one file:
 
@@ -87,9 +100,26 @@ Rules:
 `;
 };
 
-const reviewPrompt = (ctx: PromptContext): string => `You are reviewing the existing code in this repo as it relates to Jira ticket ${ctx.jiraKey}.
+const reviewPrompt = (ctx: PromptContext): string => {
+  const brainstorm = ctx.priorArtifacts?.find((a) => a.kind === "brainstorm")?.markdown ?? "";
+  const plan = ctx.priorArtifacts?.find((a) => a.kind === "plan")?.markdown ?? "";
+  const commitsBlock = ctx.recentCommits
+    ? `
 
-Use the compound-engineering:ce:review approach. Read first, then write a concise review.
+Recent commits on main (freshness context):
+\`\`\`
+${ctx.recentCommits}
+\`\`\``
+    : "";
+
+  // Plan-validation prompt: the agent's job is to check the plan against
+  // reality, not survey the codebase from scratch. Catches "the plan refers
+  // to a file that doesn't exist" and "the plan assumes X but the code
+  // actually does Y" — the kinds of mistakes that cause wasted
+  // implementation time downstream.
+  return `You are validating an implementation plan for Jira ticket ${ctx.jiraKey} against the real codebase.
+
+Use the compound-engineering:ce:review approach.
 
 Ticket: ${ctx.jiraKey}
 Title: ${ctx.title}
@@ -97,18 +127,53 @@ Title: ${ctx.title}
 Description:
 ${ctx.description || "(no description provided)"}
 
-Produce one file:
+Brainstorm:
+${brainstorm || "(no brainstorm artifact — noted; your review can proceed without it)"}
+
+Plan to validate:
+${plan || "(no plan artifact was produced — FLAG THIS as the primary issue; a review without a plan is nearly useless)"}${commitsBlock}
+
+Your job: for EACH concrete claim in the Plan (file paths, function names,
+types, assumptions about current behavior, proposed changes), verify it by
+reading the real code in this worktree. Be aggressive — don't assume the
+plan is right.
+
+Produce ONE file:
 
   docs/reviews/${ctx.jiraKey}-review.md
 
-  - What exists, what's missing, key risks
-  - Specific file:line references
-  - Recommendations to feed into the plan stage
+with YAML frontmatter (ticket, date, status: draft) and these sections:
+
+## Verified
+List of plan claims that check out, with \`file:line\` references where
+the code matches. Short bullets.
+
+## Incorrect or stale
+Claims that don't match the current code. Be specific:
+  - What the plan says: "..."
+  - What the code actually says (with file:line): "..."
+  - Proposed correction: "..."
+
+## Missing
+Edge cases, concurrency issues, error paths, or API surface points the
+plan didn't address. What would break on implementation?
+
+## Verdict
+Close the file with exactly one of:
+  - **READY** — plan is correct and complete, ship it.
+  - **AMEND** — plan is mostly right but has specific fixable issues
+    (list them as 'P0' / 'P1' in the Incorrect-or-stale section).
+  - **REWRITE** — plan fundamentally misunderstands the code or
+    requirements; regenerate.
 
 Rules:
-- Do NOT modify any source files
-- Stay grounded in the actual code
+- Do NOT modify any source files.
+- Read real files with Read/Grep/Glob; do not rely on the plan's summaries.
+- Cite real file:line paths in every claim.
+- If the Plan is missing, produce a review with verdict REWRITE and
+  explain what a plan would need to cover.
 `;
+};
 
 export const AGENTS = {
   "ce:brainstorm": {

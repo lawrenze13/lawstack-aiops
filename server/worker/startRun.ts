@@ -1,3 +1,5 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { db } from "@/server/db/client";
@@ -8,6 +10,8 @@ import { getAgent, snapshotAgent, type Lane } from "@/server/agents/registry";
 import { syncAgentRegistry } from "@/server/agents/sync";
 import { AppError, BadRequest, Conflict, NotFound } from "@/server/lib/errors";
 import { spawnAgent } from "./spawnAgent";
+
+const exec = promisify(execFile);
 
 export type StartRunParams = {
   taskId: string;
@@ -101,6 +105,10 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
     .orderBy(desc(artifacts.createdAt))
     .all();
 
+  // Freshness context for Plan / Review prompts. Best-effort — git log
+  // failures don't block the run.
+  const recentCommits = await getRecentCommits(worktree.path);
+
   const prompt = params.overridePrompt
     ? params.overridePrompt
     : agent.buildPrompt({
@@ -108,6 +116,7 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
         title: task.title,
         description: task.descriptionMd,
         priorArtifacts: priorArtifacts.map((a) => ({ kind: a.kind, markdown: a.markdown })),
+        recentCommits,
       });
 
   const runId = randomUUID();
@@ -182,4 +191,18 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
   });
 
   return { runId, lane: params.lane, agentId: agent.id };
+}
+
+async function getRecentCommits(worktreePath: string): Promise<string | undefined> {
+  try {
+    const { stdout } = await exec(
+      "git",
+      ["log", "-20", "--oneline", "--no-decorate", "origin/main"],
+      { cwd: worktreePath },
+    );
+    const out = stdout.trim();
+    return out.length > 0 ? out : undefined;
+  } catch {
+    return undefined;
+  }
 }
