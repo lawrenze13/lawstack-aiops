@@ -221,6 +221,7 @@ export default async function CardDetailPage({ params }: Props) {
               taskId={task.id}
               verdict={reviewVerdict}
               canControl={canControl}
+              runActive={allRuns.some((r) => r.status === "running")}
             />
           ) : null}
           <ApproveButton

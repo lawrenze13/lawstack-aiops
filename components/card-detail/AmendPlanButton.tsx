@@ -8,6 +8,9 @@ type Props = {
   taskId: string;
   verdict: "READY" | "AMEND" | "REWRITE";
   canControl: boolean;
+  /** True when the task has an in-flight run (any lane). Blocks Amend
+   *  to avoid race between the active run and spawning an amend. */
+  runActive: boolean;
 };
 
 /**
@@ -19,7 +22,7 @@ type Props = {
  * (persistArtifacts.ts's downstream-stale rule), so the user re-runs
  * Review on the revised Plan and ideally lands on READY.
  */
-export function AmendPlanButton({ taskId, verdict, canControl }: Props) {
+export function AmendPlanButton({ taskId, verdict, canControl, runActive }: Props) {
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = useTransition();
@@ -30,9 +33,12 @@ export function AmendPlanButton({ taskId, verdict, canControl }: Props) {
 
   const isRewrite = verdict === "REWRITE";
   const label = isRewrite ? "Rewrite Plan from Review" : "Amend Plan from Review";
-  const tone = isRewrite
-    ? "bg-red-600 hover:bg-red-700"
-    : "bg-amber-500 hover:bg-amber-600";
+  const disabled = pending || runActive;
+  const tone = disabled
+    ? "bg-[color:var(--color-muted)] text-[color:var(--color-muted-foreground)] cursor-not-allowed"
+    : isRewrite
+      ? "bg-red-600 text-white hover:bg-red-700"
+      : "bg-amber-500 text-white hover:bg-amber-600";
 
   const run = () => {
     setError(null);
@@ -67,15 +73,17 @@ export function AmendPlanButton({ taskId, verdict, canControl }: Props) {
       <button
         type="button"
         onClick={run}
-        disabled={pending}
-        className={`rounded-md px-3 py-1.5 text-xs font-semibold text-white shadow-sm disabled:opacity-50 ${tone}`}
+        disabled={disabled}
+        className={`rounded-md px-3 py-1.5 text-xs font-semibold shadow-sm disabled:opacity-60 ${tone}`}
         title={
-          isRewrite
-            ? "Review flagged fundamental issues — regenerate Plan from scratch using the review findings."
-            : "Review flagged specific issues — re-run Plan to address them."
+          runActive
+            ? "A run is active on this card — wait for it to finish or click Stop first."
+            : isRewrite
+              ? "Review flagged fundamental issues — regenerate Plan from scratch using the review findings."
+              : "Review flagged specific issues — re-run Plan to address them."
         }
       >
-        {pending ? "Running…" : `⇡ ${label}`}
+        {pending ? "Running…" : runActive ? `⇡ ${label} (wait)` : `⇡ ${label}`}
       </button>
       {error ? <span className="text-xs text-red-700">{error}</span> : null}
     </div>
