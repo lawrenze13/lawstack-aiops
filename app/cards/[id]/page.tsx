@@ -3,13 +3,15 @@ import { notFound } from "next/navigation";
 import { asc, eq, desc, and, isNull } from "drizzle-orm";
 import { auth } from "@/server/auth/config";
 import { db } from "@/server/db/client";
-import { messages, runs, tasks } from "@/server/db/schema";
+import { artifacts, messages, prRecords, runs, tasks } from "@/server/db/schema";
 import { RunLog } from "@/components/card-detail/RunLog";
 import { RunStarter } from "@/components/card-detail/RunStarter";
 import { ResumeBanner } from "@/components/card-detail/ResumeBanner";
 import { ChatBox } from "@/components/card-detail/ChatBox";
 import { ArchiveButton } from "@/components/card-detail/ArchiveButton";
 import { RunSidebar } from "@/components/card-detail/RunSidebar";
+import { ApproveButton } from "@/components/card-detail/ApproveButton";
+import { ArtifactPanel } from "@/components/card-detail/ArtifactPanel";
 import { defaultAgentForLane } from "@/server/agents/registry";
 
 export const runtime = "nodejs";
@@ -90,6 +92,67 @@ export default async function CardDetailPage({ params }: Props) {
     startedAt: new Date(r.startedAt).getTime(),
   }));
 
+  // Latest artifact per kind for this task; used both for display and the
+  // Approve gate (which requires brainstorm + plan present, non-stale).
+  const allArtifacts = db
+    .select({
+      id: artifacts.id,
+      kind: artifacts.kind,
+      filename: artifacts.filename,
+      markdown: artifacts.markdown,
+      isStale: artifacts.isStale,
+      createdAt: artifacts.createdAt,
+    })
+    .from(artifacts)
+    .where(eq(artifacts.taskId, id))
+    .orderBy(desc(artifacts.createdAt))
+    .all();
+  const latestArtifactByKind = new Map<
+    "brainstorm" | "plan" | "review",
+    (typeof allArtifacts)[number]
+  >();
+  for (const a of allArtifacts) {
+    if (!latestArtifactByKind.has(a.kind as "brainstorm" | "plan" | "review")) {
+      latestArtifactByKind.set(a.kind as "brainstorm" | "plan" | "review", a);
+    }
+  }
+  const artifactList = Array.from(latestArtifactByKind.values()).map((a) => ({
+    kind: a.kind as "brainstorm" | "plan" | "review",
+    filename: a.filename,
+    markdown: a.markdown,
+    isStale: a.isStale,
+    createdAt: new Date(a.createdAt).getTime(),
+  }));
+
+  const gate = {
+    brainstorm: {
+      present: latestArtifactByKind.has("brainstorm"),
+      stale: latestArtifactByKind.get("brainstorm")?.isStale ?? false,
+    },
+    plan: {
+      present: latestArtifactByKind.has("plan"),
+      stale: latestArtifactByKind.get("plan")?.isStale ?? false,
+    },
+    review: {
+      present: latestArtifactByKind.has("review"),
+      stale: latestArtifactByKind.get("review")?.isStale ?? false,
+    },
+  };
+
+  const prRecord = db.select().from(prRecords).where(eq(prRecords.taskId, id)).limit(1).get();
+  const prRecordDTO = prRecord
+    ? {
+        state: prRecord.state,
+        prUrl: prRecord.prUrl,
+        commitSha: prRecord.commitSha,
+        jiraCommentId: prRecord.jiraCommentId,
+      }
+    : null;
+
+  const canControl =
+    (session.user as { role?: string } | undefined)?.role === "admin" ||
+    task.ownerId === (session.user as { id?: string } | undefined)?.id;
+
   const brainstormAgent = defaultAgentForLane("brainstorm");
   const planAgent = defaultAgentForLane("plan");
   const reviewAgent = defaultAgentForLane("review");
@@ -126,10 +189,13 @@ export default async function CardDetailPage({ params }: Props) {
           <span className="rounded bg-[color:var(--color-muted)] px-2 py-1 font-medium">
             lane: {task.currentLane}
           </span>
-          {(session.user as { role?: string } | undefined)?.role === "admin" ||
-          task.ownerId === (session.user as { id?: string } | undefined)?.id ? (
-            <ArchiveButton taskId={task.id} jiraKey={task.jiraKey} />
-          ) : null}
+          <ApproveButton
+            taskId={task.id}
+            prRecord={prRecordDTO}
+            gate={gate}
+            canControl={canControl}
+          />
+          {canControl ? <ArchiveButton taskId={task.id} jiraKey={task.jiraKey} /> : null}
         </div>
       </header>
 
@@ -158,6 +224,7 @@ export default async function CardDetailPage({ params }: Props) {
             runs={runSummaries}
             currentRunId={currentRun?.id ?? null}
           />
+          <ArtifactPanel artifacts={artifactList} />
 
           {task.descriptionMd ? (
             <details className="flex-shrink-0 rounded-lg border border-[color:var(--color-border)] p-3">

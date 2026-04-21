@@ -308,9 +308,17 @@ async function finalize(
 
   audit({ action: "run.finalized", runId, payload: { status, reason } });
 
-  // Auto-advance to the next lane on clean completion. Dynamic import keeps
-  // the module graph acyclic (autoAdvance imports startRun imports spawnAgent).
+  // On clean completion: persist the produced artifact, then auto-advance
+  // to the next lane. Artifact persistence happens first so the next lane's
+  // agent prompt picks up the fresh upstream file via priorArtifacts.
   if (status === "completed") {
+    try {
+      const { persistArtifactsForRun } = await import("./persistArtifacts");
+      await persistArtifactsForRun(runId);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[spawnAgent] artifact persistence failed", { runId, err });
+    }
     try {
       const { maybeAutoAdvance } = await import("./autoAdvance");
       await maybeAutoAdvance(runId);

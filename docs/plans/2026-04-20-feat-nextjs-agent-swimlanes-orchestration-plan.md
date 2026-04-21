@@ -543,15 +543,23 @@ On boot, registry rows are upserted into the `agent_config` cache table with a `
 
 #### Phase 3: Pipeline + Approve & PR (week 3)
 
-- Auto-advance between lanes (on `result` event for lane X, enqueue lane X+1's default agent unless paused)
-- Artifact lineage tracking (re-running upstream marks downstream stale)
-- dnd-kit board with valid-transition guard (PATCH `/api/tasks/:id` validates lane graph; 409 + snap-back on invalid)
-- `<ApproveButton>` + `app/api/tasks/[id]/approve/route.ts` with the step-by-step state machine
-- `gh pr create` idempotent wrapper + Jira ADF comment poster
-- Failure → `Retry` (same agent, resume) / `Swap agent` (fresh session) UX
-- Notifications: `<ToastHost>` + `<TabBadge>` for owner triggers
-- **Deliverable:** end-to-end happy path: create task → all lanes auto-advance → click Approve & PR → draft PR opens → Jira comment posted
-- **Success criteria:** AC-3, AC-4, AC-9, AC-11 pass
+**Phase 3A — Artifacts + Approve & PR (landed):**
+- [x] Auto-advance between lanes *(shipped in Phase 2B2)*
+- [x] Artifact persistence on run completion *(server/worker/persistArtifacts.ts; scans worktree for docs/{brainstorms,plans,reviews}/*.md, upserts artifact rows, marks downstream kinds stale)*
+- [x] `<ApproveButton>` + `app/api/tasks/[id]/approve/route.ts` with the step-by-step state machine *(server/git/approve.ts handles drafting→committed→pushed→pr_opened→jira_notified; failed_at_<step> enables retry resuming from that step)*
+- [x] `gh pr create` idempotent wrapper *(gh pr list --head checked first; existing PR URL reused)*
+- [x] Jira ADF comment poster *(server/jira/client.postComment with prCommentDoc; failure is non-fatal, surfaced as warning for manual posting)*
+- [x] Stale-artifact gate on Approve *(blocks when upstream re-ran without regenerating downstream)*
+- [x] ArtifactPanel with collapsible markdown preview of each artifact
+
+**Phase 3B — Deferred (polish):**
+- [ ] dnd-kit board with valid-transition guard (PATCH `/api/tasks/:id` validates lane graph; 409 + snap-back on invalid)
+- [ ] Toast notifications (run complete, approve success, cost warn) via `<ToastHost>` + `<TabBadge>`
+- [ ] Swap-agent UI to pick a different agent for a lane on retry
+- [ ] `ce:review` prompt split (plan-lane variant vs review-lane variant)
+
+- **Deliverable (3A landed):** create task → auto-advance lanes → ArtifactPanel shows produced files → click Approve & PR → commit + push + draft PR + Jira comment all run → card header shows "✓ PR opened → view"
+- **Success criteria (3A):** AC-3 (Approve atomicity with retry from failed step), AC-9 (stale gate), AC-11 (PR idempotency) pass
 
 #### Phase 4: Hardening + cutover (week 4)
 
