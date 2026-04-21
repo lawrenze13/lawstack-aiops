@@ -7,6 +7,7 @@ import { db } from "@/server/db/client";
 import { auditLog, runs, tasks, worktrees } from "@/server/db/schema";
 import { env } from "@/server/lib/env";
 import { KillRunButton } from "./KillRunButton";
+import { AutoRefresh } from "./AutoRefresh";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -135,7 +136,10 @@ export default async function AdminOpsPage() {
             >
               ← Board
             </Link>
-            <h1 className="mt-1 text-lg font-semibold">Admin · Ops</h1>
+            <div className="mt-1 flex items-center gap-3">
+              <h1 className="text-lg font-semibold">Admin · Ops</h1>
+              <AutoRefresh intervalMs={15_000} />
+            </div>
           </div>
           <div className="flex items-center gap-6 text-xs">
             <Stat label="Live runs" value={String(liveRunCount)} />

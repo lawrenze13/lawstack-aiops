@@ -10,8 +10,10 @@ export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const session = await auth();
-  const userId = (session?.user as { id?: string } | undefined)?.id;
+  const user = session?.user as { id?: string; role?: string } | undefined;
+  const userId = user?.id;
   if (!userId) return null;
+  const isAdmin = user?.role === "admin";
 
   const rows = db
     .select({
@@ -27,5 +29,5 @@ export default async function HomePage() {
     .orderBy(desc(tasks.updatedAt))
     .all();
 
-  return <Board initialTasks={rows.map(enrichTask)} scope="me" />;
+  return <Board initialTasks={rows.map(enrichTask)} scope="me" isAdmin={isAdmin} />;
 }

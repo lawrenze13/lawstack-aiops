@@ -43,9 +43,10 @@ type Task = {
 type Props = {
   initialTasks: Task[];
   scope: "me" | "all";
+  isAdmin?: boolean;
 };
 
-export function Board({ initialTasks, scope }: Props) {
+export function Board({ initialTasks, scope, isAdmin }: Props) {
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
@@ -93,6 +94,15 @@ export function Board({ initialTasks, scope }: Props) {
             >
               Team Board
             </a>
+            {isAdmin ? (
+              <a
+                href="/admin/ops"
+                className="rounded-md border border-dashed border-[color:var(--color-border)] px-3 py-1 text-[color:var(--color-muted-foreground)] hover:border-[color:var(--color-foreground)] hover:text-[color:var(--color-foreground)]"
+                title="Admin ops (stuck runs, cost/day, worktree disk)"
+              >
+                ⚙ Admin
+              </a>
+            ) : null}
           </nav>
         </div>
         <div className="flex items-center gap-3">

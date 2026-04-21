@@ -1,3 +1,4 @@
+import { auth } from "@/server/auth/config";
 import { db } from "@/server/db/client";
 import { tasks } from "@/server/db/schema";
 import { desc, ne } from "drizzle-orm";
@@ -8,6 +9,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export default async function TeamBoardPage() {
+  const session = await auth();
+  const isAdmin =
+    (session?.user as { role?: string } | undefined)?.role === "admin";
+
   const rows = db
     .select({
       id: tasks.id,
@@ -23,5 +28,5 @@ export default async function TeamBoardPage() {
     .all();
 
   const enriched = rows.map((t) => enrichTask(t));
-  return <Board initialTasks={enriched} scope="all" />;
+  return <Board initialTasks={enriched} scope="all" isAdmin={isAdmin} />;
 }
