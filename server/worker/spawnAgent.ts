@@ -25,6 +25,12 @@ export type SpawnAgentParams = {
   worktreePath: string;
   /** Resume an existing Claude session id instead of starting a fresh one. */
   resumeSessionId?: string;
+  /**
+   * Text to surface in the run log as the user's message (chat resume).
+   * Persisted as a server event with kind='user_message' so the log shows
+   * what the user typed before Claude's response streams in.
+   */
+  displayUserMessage?: string;
 };
 
 const KILL_GRACE_MS = 5000;
@@ -148,6 +154,14 @@ export function spawnAgent(p: SpawnAgentParams): void {
       console.error("[spawnAgent] persist failed", { runId: p.runId, err });
     }
   };
+
+  // If this run is a chat resume, surface the user's message as the first
+  // event in the log. Claude receives the same text via `-p "<text>"` but
+  // never echoes it back, so the UI would otherwise start with Claude's
+  // response and look like nothing was said.
+  if (p.displayUserMessage) {
+    persistAndEmit("server", { kind: "user_message", text: p.displayUserMessage });
+  }
 
   // Synthesise a 'server' event so the client sees that the run started even
   // before Claude emits its first 'system init' frame.

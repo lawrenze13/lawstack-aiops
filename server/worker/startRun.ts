@@ -17,6 +17,12 @@ export type StartRunParams = {
   resumeSessionId?: string;
   /** When resuming, override the default prompt with the caller's text. */
   overridePrompt?: string;
+  /**
+   * Text to display in the log as the user's message. Forwarded to
+   * spawnAgent so it renders as a user bubble above Claude's reply.
+   * Typically equal to overridePrompt when coming from chat.
+   */
+  displayUserMessage?: string;
   /** Who initiated the run — for audit rows. */
   initiator: { userId?: string; kind: "user" | "auto_advance" | "system" };
   /** Drop the 10s idempotency window (e.g. for chat messages that must land). */
@@ -172,6 +178,7 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
     model: agent.model,
     worktreePath: worktree.path,
     resumeSessionId: params.resumeSessionId,
+    displayUserMessage: params.displayUserMessage,
   });
 
   return { runId, lane: params.lane, agentId: agent.id };

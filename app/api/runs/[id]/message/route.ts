@@ -60,6 +60,7 @@ export const POST = withAuth(async ({ req, user }) => {
       agentId: run.agentId,
       resumeSessionId: run.claudeSessionId,
       overridePrompt: body.text,
+      displayUserMessage: body.text,
       initiator: { userId: user.id, kind: "user" },
       // Chat messages must land even if they arrive quickly.
       bypassIdempotency: true,

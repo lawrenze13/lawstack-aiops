@@ -137,7 +137,11 @@ export default async function CardDetailPage({ params }: Props) {
           {currentRun ? (
             <>
               <div className="min-h-0 flex-1">
+                {/* key={currentRun.id} forces a fresh RunLog when the run
+                    changes (e.g., chat spawns a new run) so old events,
+                    `ended` state, and "end of log" divider don't leak over. */}
                 <RunLog
+                  key={currentRun.id}
                   runId={currentRun.id}
                   initialStatus={currentRun.status}
                   initialCostUsd={currentRun.costUsdMicros / 1_000_000}

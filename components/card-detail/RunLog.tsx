@@ -591,8 +591,24 @@ function ServerLine({ payload }: { payload: unknown }) {
     error?: string;
     code?: number;
     usdCumulative?: number;
+    text?: string;
   };
   if (p.kind === "cost_tick") return null;
+
+  // User chat messages render as a distinct bubble, not a server line.
+  if (p.kind === "user_message" && typeof p.text === "string") {
+    return (
+      <div className="mb-3 rounded-md border border-blue-500/30 bg-blue-500/5 px-3 py-2">
+        <div className="mb-1 text-[10px] uppercase tracking-wide text-blue-700">
+          👤 you
+        </div>
+        <div className="prose prose-sm max-w-none text-[color:var(--color-foreground)]">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{p.text}</ReactMarkdown>
+        </div>
+      </div>
+    );
+  }
+
   const content = (() => {
     switch (p.kind) {
       case "spawned":
