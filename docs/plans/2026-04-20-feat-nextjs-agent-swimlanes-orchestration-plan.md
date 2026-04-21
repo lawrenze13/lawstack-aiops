@@ -578,7 +578,21 @@ On boot, registry rows are upserted into the `agent_config` cache table with a `
 - [ ] **Decommission day +14:** archive `ticket-worker.sh` + `ticket-resume.sh` + `claude-stream-to-slack.sh` to `/home/lawrenzem/bin/_archive/`; delete n8n workflows
 - **Success criteria:** Slack bot retired ≤14 days post-launch; AC-6, AC-7, AC-10, AC-12 pass; success metrics met for 1 week.
 
-#### Phase 5: Implementation (post-PR, `ce:work` agent) — deferred to post-MVP
+#### Phase 5: Implementation (post-PR, `ce:work` agent) — landed
+
+**Phase 5A — Agent + NEEDS_INPUT loop (commit 052403d):**
+- [x] `ce:work` agent in registry (Opus 4.7, maxTurns=120)
+- [x] Per-agent cost cap override ($10 warn / $30 kill for ce:work)
+- [x] NEEDS_INPUT parser in streamParser; awaiting_input run status; yellow banner + toast in RunLog
+- [x] ImplementButton in card header (indigo; only shown when PR opened + no implement run yet)
+- [x] implement lane added to enums (SQLite TEXT — no SQL migration)
+
+**Phase 5B — Implementation summary + Jira follow-up (deferred):**
+- [ ] docs/implementation/<key>-implementation.md artifact produced on clean completion
+- [ ] Optional Jira follow-up comment summarising commits + manual-verify list
+- [ ] Fine-tune ce:work prompt based on real runs
+
+#### Phase 5 (original, now superseded)
 
 Today's pipeline ends at "draft PR opened with Brainstorm + Plan + Review docs." The human then writes the actual code. Phase 5 extends the pipeline so the agent can start (or complete) the implementation, opening new commits on the same branch, with a structured pause-for-human-clarification loop.
 
