@@ -15,6 +15,7 @@ import { AmendPlanButton } from "@/components/card-detail/AmendPlanButton";
 import { ArtifactPanel } from "@/components/card-detail/ArtifactPanel";
 import { CardMainTabs } from "@/components/card-detail/CardMainTabs";
 import { DescriptionPanel } from "@/components/card-detail/DescriptionPanel";
+import { ImplementButton } from "@/components/card-detail/ImplementButton";
 import { defaultAgentForLane } from "@/server/agents/registry";
 import { env } from "@/server/lib/env";
 
@@ -228,6 +229,16 @@ export default async function CardDetailPage({ params }: Props) {
             taskId={task.id}
             prRecord={prRecordDTO}
             gate={gate}
+            canControl={canControl}
+          />
+          <ImplementButton
+            taskId={task.id}
+            prOpened={
+              prRecordDTO?.state === "pr_opened" ||
+              prRecordDTO?.state === "jira_notified"
+            }
+            implementStarted={allRuns.some((r) => r.lane === "implement")}
+            runActive={allRuns.some((r) => r.status === "running")}
             canControl={canControl}
           />
           {canControl ? <ArchiveButton taskId={task.id} jiraKey={task.jiraKey} /> : null}

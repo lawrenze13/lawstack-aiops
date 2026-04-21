@@ -4,7 +4,9 @@ import { runs } from "@/server/db/schema";
 import { costForUsage, type UsageLike } from "@/server/agents/pricing";
 import { audit } from "@/server/auth/audit";
 
-// Thresholds in USD. Admin-configurable post-MVP; hard-coded for now.
+// Default thresholds in USD. Individual agents can override via
+// AgentConfig.costWarnUsd / costKillUsd (see registry.ts — ce:work uses
+// 10/30 because implementation runs are longer than planning runs).
 export const COST_WARN_USD = 5;
 export const COST_KILL_USD = 15;
 
@@ -12,6 +14,8 @@ type MeterState = {
   model: string;
   usdCumulative: number;
   warned: boolean;
+  warnUsd: number;
+  killUsd: number;
 };
 
 declare global {
@@ -26,12 +30,25 @@ if (process.env.NODE_ENV !== "production") {
 
 export type MeterOutcome =
   | { kind: "ok"; usdCumulative: number }
-  | { kind: "warn"; usdCumulative: number }
-  | { kind: "kill"; usdCumulative: number };
+  | { kind: "warn"; usdCumulative: number; threshold: number }
+  | { kind: "kill"; usdCumulative: number; threshold: number };
 
-/** Register a run with its model so subsequent observeUsage calls can price it. */
-export function initMeter(runId: string, model: string): void {
-  meters.set(runId, { model, usdCumulative: 0, warned: false });
+/**
+ * Register a run with its model + (optional) per-run cap overrides.
+ * Falls back to COST_WARN_USD / COST_KILL_USD when not provided.
+ */
+export function initMeter(
+  runId: string,
+  model: string,
+  caps?: { warnUsd?: number; killUsd?: number },
+): void {
+  meters.set(runId, {
+    model,
+    usdCumulative: 0,
+    warned: false,
+    warnUsd: caps?.warnUsd ?? COST_WARN_USD,
+    killUsd: caps?.killUsd ?? COST_KILL_USD,
+  });
 }
 
 /**
@@ -64,22 +81,30 @@ export function observeAssistantUsage(runId: string, usage: UsageLike): MeterOut
     // ignore
   }
 
-  if (state.usdCumulative >= COST_KILL_USD) {
+  if (state.usdCumulative >= state.killUsd) {
     audit({
       action: "cost_cap.tripped",
       runId,
-      payload: { usd: state.usdCumulative, threshold: COST_KILL_USD },
+      payload: { usd: state.usdCumulative, threshold: state.killUsd },
     });
-    return { kind: "kill", usdCumulative: state.usdCumulative };
+    return {
+      kind: "kill",
+      usdCumulative: state.usdCumulative,
+      threshold: state.killUsd,
+    };
   }
-  if (!state.warned && state.usdCumulative >= COST_WARN_USD) {
+  if (!state.warned && state.usdCumulative >= state.warnUsd) {
     state.warned = true;
     audit({
       action: "cost_warn.tripped",
       runId,
-      payload: { usd: state.usdCumulative, threshold: COST_WARN_USD },
+      payload: { usd: state.usdCumulative, threshold: state.warnUsd },
     });
-    return { kind: "warn", usdCumulative: state.usdCumulative };
+    return {
+      kind: "warn",
+      usdCumulative: state.usdCumulative,
+      threshold: state.warnUsd,
+    };
   }
   return { kind: "ok", usdCumulative: state.usdCumulative };
 }

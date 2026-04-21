@@ -223,6 +223,8 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
     worktreePath: worktree.path,
     resumeSessionId: params.resumeSessionId,
     displayUserMessage: params.displayUserMessage,
+    costWarnUsd: agent.costWarnUsd,
+    costKillUsd: agent.costKillUsd,
   });
 
   return { runId, lane: params.lane, agentId: agent.id };

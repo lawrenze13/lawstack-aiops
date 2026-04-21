@@ -9,8 +9,6 @@ import { runRegistry, type StopReason } from "./runRegistry";
 import { parseStreamLine } from "./streamParser";
 import {
   clearMeter,
-  COST_KILL_USD,
-  COST_WARN_USD,
   finalizeMeter,
   initMeter,
   observeAssistantUsage,
@@ -31,6 +29,9 @@ export type SpawnAgentParams = {
    * what the user typed before Claude's response streams in.
    */
   displayUserMessage?: string;
+  /** Per-run cost cap overrides. Defaults if unset. */
+  costWarnUsd?: number;
+  costKillUsd?: number;
 };
 
 const KILL_GRACE_MS = 5000;
@@ -100,6 +101,9 @@ export function spawnAgent(p: SpawnAgentParams): void {
   const startedAt = Date.now();
 
   let lastStopReason: StopReason | undefined;
+  // If the final `result` event's text starts with NEEDS_INPUT:, stash
+  // the question here so finalize() can set status='awaiting_input'.
+  let needsInputQuestion: string | undefined;
   const stop = (reason: StopReason): void => {
     if (child.killed) return;
     lastStopReason = reason;
@@ -128,7 +132,10 @@ export function spawnAgent(p: SpawnAgentParams): void {
     stop,
   });
 
-  initMeter(p.runId, p.model);
+  initMeter(p.runId, p.model, {
+    warnUsd: p.costWarnUsd,
+    killUsd: p.costKillUsd,
+  });
 
   // Prepared statements — hot-path inserts.
   const insertMsg = sqlite.prepare(
@@ -198,13 +205,13 @@ export function spawnAgent(p: SpawnAgentParams): void {
           persistAndEmit("server", {
             kind: "cost_warn",
             usdCumulative: outcome.usdCumulative,
-            threshold: COST_WARN_USD,
+            threshold: outcome.threshold,
           });
         } else if (outcome.kind === "kill") {
           persistAndEmit("server", {
             kind: "cost_killed",
             usdCumulative: outcome.usdCumulative,
-            threshold: COST_KILL_USD,
+            threshold: outcome.threshold,
           });
           stop("cost_cap");
         } else {
@@ -231,6 +238,15 @@ export function spawnAgent(p: SpawnAgentParams): void {
       } else {
         clearMeter(p.runId);
       }
+
+      // NEEDS_INPUT: stash the question for finalize() to pick up.
+      if (ev.hint.needsInputQuestion) {
+        needsInputQuestion = ev.hint.needsInputQuestion;
+        persistAndEmit("server", {
+          kind: "needs_input",
+          question: ev.hint.needsInputQuestion,
+        });
+      }
     }
   });
 
@@ -251,9 +267,19 @@ export function spawnAgent(p: SpawnAgentParams): void {
 
   child.on("exit", (code, signal) => {
     persistAndEmit("server", { kind: "exit", code, signal });
-    const status = decideExitStatus(code, signal, lastStopReason);
+    let status = decideExitStatus(code, signal, lastStopReason);
+    // NEEDS_INPUT: agent signalled a clarification request before exiting.
+    // Override completed → awaiting_input so the UI surfaces a yellow
+    // banner + chat-to-answer flow instead of "run completed."
+    if (status === "completed" && needsInputQuestion) {
+      status = "awaiting_input";
+    }
     const reasonTag = lastStopReason ? `${lastStopReason}:` : "";
-    void finalize(p.runId, status, `${reasonTag}exit code=${code} signal=${signal ?? "none"}`);
+    void finalize(
+      p.runId,
+      status,
+      `${reasonTag}exit code=${code} signal=${signal ?? "none"}`,
+    );
   });
 
   audit({ action: "run.started", runId: p.runId, taskId: p.taskId, payload: { model: p.model } });
@@ -264,7 +290,7 @@ function decideExitStatus(
   code: number | null,
   signal: NodeJS.Signals | null,
   stopReason?: StopReason,
-): "completed" | "failed" | "stopped" | "cost_killed" {
+): "completed" | "failed" | "stopped" | "cost_killed" | "awaiting_input" {
   if (stopReason === "cost_cap") return "cost_killed";
   if (signal === "SIGTERM" || signal === "SIGKILL") return "stopped";
   if (code === 0) return "completed";
@@ -273,7 +299,13 @@ function decideExitStatus(
 
 async function finalize(
   runId: string,
-  status: "completed" | "failed" | "stopped" | "cost_killed" | "interrupted",
+  status:
+    | "completed"
+    | "failed"
+    | "stopped"
+    | "cost_killed"
+    | "interrupted"
+    | "awaiting_input",
   reason: string,
 ): Promise<void> {
   const handle = runRegistry.get(runId);
@@ -285,7 +317,7 @@ async function finalize(
     // marked 'interrupted' by a bad reconciler run gets cleaned up when
     // its subprocess finishes naturally.
     const killedReason =
-      status === "completed"
+      status === "completed" || status === "awaiting_input"
         ? null
         : status === "failed" || status === "stopped" || status === "cost_killed"
           ? reason

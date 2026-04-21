@@ -40,6 +40,11 @@ type State = {
   toolResults: Record<string, ToolResult>;
   /** message.id → output_tokens reported in usage. Sum = total output tokens. */
   outputTokensByMessage: Record<string, number>;
+  /**
+   * Set when the agent emitted NEEDS_INPUT:<question>. Drives the yellow
+   * "Agent is waiting on you" banner + a toast. Cleared on runId change.
+   */
+  needsInputQuestion: string | null;
 };
 
 type Action =
@@ -66,15 +71,27 @@ function reducer(state: State, action: Action): State {
 
       let next = { ...state, events: [...state.events, action.row] };
 
-      // Pull cost updates from server events / result.
+      // Pull cost + status updates from server events / result.
       if (action.row.type === "server") {
-        const p = action.row.payload as { kind?: string; usdCumulative?: number };
+        const p = action.row.payload as {
+          kind?: string;
+          usdCumulative?: number;
+          question?: string;
+        };
         if (typeof p.usdCumulative === "number") next.costUsd = p.usdCumulative;
         if (p.kind === "cost_warn") next.costState = "warn";
         if (p.kind === "cost_killed") next.costState = "kill";
+        if (p.kind === "needs_input" && typeof p.question === "string") {
+          next.needsInputQuestion = p.question;
+        }
       } else if (action.row.type === "result") {
-        const p = action.row.payload as { total_cost_usd?: number };
+        const p = action.row.payload as { total_cost_usd?: number; result?: string };
         if (typeof p.total_cost_usd === "number") next.costUsd = p.total_cost_usd;
+        // Belt-and-braces: also detect NEEDS_INPUT directly from the
+        // result payload in case the server-side parser missed it.
+        if (typeof p.result === "string" && p.result.trim().startsWith("NEEDS_INPUT:")) {
+          next.needsInputQuestion = p.result.trim().slice("NEEDS_INPUT:".length).trim();
+        }
       }
 
       // Track per-message output tokens so the live status line can show
@@ -130,9 +147,9 @@ function reducer(state: State, action: Action): State {
       return { ...state, phase: action.phase };
     case "resetForRun":
       // Clear per-run transient state (ended marker, connection phase,
-      // cost badge) when the viewer switches to a different run. Keeps
-      // state.events intact so the thread view still shows prior runs'
-      // events.
+      // cost badge, needs-input question) when the viewer switches to a
+      // different run. Keeps state.events intact so the thread view
+      // still shows prior runs' events.
       return {
         ...state,
         ended: null,
@@ -140,6 +157,7 @@ function reducer(state: State, action: Action): State {
         connected: false,
         costUsd: action.initialCostUsd,
         costState: "ok",
+        needsInputQuestion: null,
       };
   }
 }
@@ -153,6 +171,7 @@ const initial: State = {
   phase: "initial",
   toolResults: {},
   outputTokensByMessage: {},
+  needsInputQuestion: null,
 };
 
 // ─── Component ─────────────────────────────────────────────────────────────
@@ -216,17 +235,28 @@ export function RunLog({
   const router = useRouter();
   // Toast dedupe: track which transitions we've already fired so reopening
   // the card doesn't re-toast historical events.
-  const toastedRef = useRef<{ ended: boolean; warned: boolean; killed: boolean }>({
+  const toastedRef = useRef<{
+    ended: boolean;
+    warned: boolean;
+    killed: boolean;
+    needsInput: boolean;
+  }>({
     ended: false,
     warned: false,
     killed: false,
+    needsInput: false,
   });
 
   // Reset per-run markers when the current run changes — otherwise a
   // previous run's 'ended' state leaks into the new run's view and blocks
   // the toast + auto-refresh logic from firing again.
   useEffect(() => {
-    toastedRef.current = { ended: false, warned: false, killed: false };
+    toastedRef.current = {
+      ended: false,
+      warned: false,
+      killed: false,
+      needsInput: false,
+    };
     dispatch({ kind: "resetForRun", initialCostUsd });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId]);
@@ -320,7 +350,7 @@ export function RunLog({
       toast.push({
         kind: "warn",
         title: "Cost warning",
-        body: `$${state.costUsd.toFixed(2)} spent on this run — hard-stop at $15`,
+        body: `$${state.costUsd.toFixed(2)} spent on this run — approaching cap`,
       });
     }
     if (state.costState === "kill" && !toastedRef.current.killed) {
@@ -332,6 +362,17 @@ export function RunLog({
       });
     }
   }, [state.costState, state.costUsd, toast]);
+
+  // Fire a toast + flash attention when the agent pauses for input.
+  useEffect(() => {
+    if (!state.needsInputQuestion || toastedRef.current.needsInput) return;
+    toastedRef.current.needsInput = true;
+    toast.push({
+      kind: "warn",
+      title: "Agent is waiting on you",
+      body: state.needsInputQuestion.slice(0, 160),
+    });
+  }, [state.needsInputQuestion, toast]);
 
   const isRunning = !state.ended && initialStatus === "running";
   const displayStatus = state.ended
@@ -435,6 +476,23 @@ export function RunLog({
       {state.costState === "kill" || state.ended?.status === "cost_killed" ? (
         <div className="border-b border-red-500/40 bg-red-500/10 px-3 py-1 text-xs text-red-700">
           ✘ Cost cap reached (${state.costUsd.toFixed(2)}). Run terminated.
+        </div>
+      ) : null}
+
+      {state.needsInputQuestion ? (
+        <div className="flex items-start gap-3 border-b border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-950">
+          <span className="mt-0.5 text-base">🛎</span>
+          <div className="flex-1">
+            <div className="font-semibold">Agent is waiting on you</div>
+            <div className="prose prose-sm mt-1 max-w-none whitespace-pre-wrap text-[13px] text-amber-950">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {state.needsInputQuestion}
+              </ReactMarkdown>
+            </div>
+            <div className="mt-1 text-[11px] text-amber-800">
+              Reply via the chat below — your answer resumes the Claude session.
+            </div>
+          </div>
         </div>
       ) : null}
 

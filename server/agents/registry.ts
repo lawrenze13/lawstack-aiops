@@ -7,7 +7,7 @@
 
 import { createHash } from "node:crypto";
 
-export type Lane = "brainstorm" | "plan" | "review" | "pr";
+export type Lane = "brainstorm" | "plan" | "review" | "pr" | "implement";
 
 export type AgentConfig = {
   id: string;
@@ -19,6 +19,13 @@ export type AgentConfig = {
   model: string;
   /** Hard cap on Claude turns to keep cost bounded. */
   maxTurns: number;
+  /**
+   * Per-agent cost-cap overrides. Implementation agents (`ce:work`) run
+   * longer than planning agents, so they get higher caps. Falls through
+   * to the global defaults (5 / 15) if unset.
+   */
+  costWarnUsd?: number;
+  costKillUsd?: number;
   /**
    * Build the prompt string Claude receives. Variables come from the run
    * context: jiraKey, title, description, plus optional priorArtifacts.
@@ -277,6 +284,109 @@ Rules:
 `;
 };
 
+const workPrompt = (ctx: PromptContext): string => {
+  const plan = ctx.priorArtifacts?.find((a) => a.kind === "plan")?.markdown ?? "";
+  const brainstorm = ctx.priorArtifacts?.find((a) => a.kind === "brainstorm")?.markdown ?? "";
+  const review = ctx.priorArtifacts?.find((a) => a.kind === "review")?.markdown ?? "";
+  const commitsBlock = ctx.recentCommits
+    ? `
+
+Recent commits on main:
+\`\`\`
+${ctx.recentCommits}
+\`\`\``
+    : "";
+
+  return `You are implementing Jira ticket ${ctx.jiraKey} against the repository in this worktree.
+
+Use the compound-engineering:ce:work approach.
+
+Ticket: ${ctx.jiraKey}
+Title: ${ctx.title}
+
+Description:
+${ctx.description || "(no description provided)"}
+
+Brainstorm (background):
+${brainstorm || "(no brainstorm artifact)"}
+
+Plan to implement (PRIMARY INPUT):
+${plan || "(no plan artifact — STOP and emit NEEDS_INPUT asking for a plan first)"}
+
+Review notes (validated against the codebase):
+${review || "(no review artifact — proceed but flag anything the plan doesn't cover)"}${commitsBlock}
+
+## Your job
+
+Execute the Plan. Write real code, run tests where applicable, and commit
+incrementally to the current branch (\`ai/${ctx.jiraKey}\`). The draft PR
+on this branch will update in real time as you push.
+
+## Commit + push cadence
+
+Use the Bash tool to commit after each logical unit of work — one file,
+one feature, one test. Good commit messages are important; the human
+PR reviewer reads them.
+
+\`\`\`
+git add <specific files>
+git commit -m "feat(<scope>): <what + why in one line>
+
+<optional body explaining the non-obvious parts>"
+git push
+\`\`\`
+
+Do NOT batch many unrelated changes into one commit. Do NOT force-push.
+
+## When to pause and ask
+
+If you hit a real decision point the Plan doesn't cover, STOP and ask the
+user. End your turn with exactly this marker on its own line:
+
+\`\`\`
+NEEDS_INPUT:
+<your question, as a clear markdown paragraph. Max 3-4 lines.
+Propose 2-3 concrete options where possible so the user can just pick one.>
+\`\`\`
+
+Do NOT wrap NEEDS_INPUT in a code block. The server parses the marker
+and shows your question to the user as a banner; they'll reply via
+chat and your session resumes.
+
+Triggers for NEEDS_INPUT:
+- Missing credentials or config you can't safely guess.
+- Design decisions with real tradeoffs (backwards compatibility, naming,
+  behavior on edge cases the plan doesn't cover).
+- Scope calls — "should I also fix X since I'm in here?"
+- Ambiguity in the requirements you can't resolve from the code.
+
+Do NOT use NEEDS_INPUT for:
+- Simple lookups (grep the code, don't ask).
+- Cosmetic choices (just pick one).
+- Things already answered in the Plan or Review.
+
+## Finishing
+
+When the implementation is complete:
+1. Ensure all commits are pushed.
+2. Write \`docs/implementation/${ctx.jiraKey}-implementation.md\` with:
+   - One short paragraph of what changed.
+   - Bullet list of commits (hash + one-line message).
+   - "Manual verification" section: what the human should check before
+     undrafting the PR.
+3. Your final message should summarise the work and include the PR link
+   (check via \`gh pr list --head ai/${ctx.jiraKey} --json url\`).
+
+## Rules
+
+- Stay inside this worktree; don't touch anything outside it.
+- Follow existing code style (look at surrounding files).
+- Do NOT rewrite unrelated code.
+- Do NOT skip commit hooks or tests; investigate failures.
+- When in doubt, NEEDS_INPUT is the safe path.
+`;
+};
+
 export const AGENTS = {
   "ce:brainstorm": {
     id: "ce:brainstorm",
@@ -305,6 +415,21 @@ export const AGENTS = {
     maxTurns: 30,
     buildPrompt: reviewPrompt,
   },
+  "ce:work": {
+    id: "ce:work",
+    name: "CE Implement",
+    lanes: ["implement"],
+    skillHint: "compound-engineering:ce:work",
+    // Opus for implementation — cheaper-but-dumber sonnet will thrash on
+    // real code. Implementation is where model quality matters most.
+    model: "claude-opus-4-7",
+    maxTurns: 120,
+    // Implementation is expensive. Raise caps so a real ticket fits in
+    // one run without tripping the generic $5/$15.
+    costWarnUsd: 10,
+    costKillUsd: 30,
+    buildPrompt: workPrompt,
+  },
 } as const satisfies Record<string, AgentConfig>;
 
 export type AgentId = keyof typeof AGENTS;
@@ -323,6 +448,8 @@ export function defaultAgentForLane(lane: Lane): AgentId | undefined {
       return "ce:review";
     case "pr":
       return undefined; // PR is not agent-driven; user clicks Approve & PR
+    case "implement":
+      return "ce:work";
   }
 }
 

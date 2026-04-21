@@ -10,7 +10,10 @@ const NEXT: Record<Lane, Lane | null> = {
   brainstorm: "plan",
   plan: "review",
   review: "pr",
+  // PR → Implement is a manual click, not auto-advance. Human should
+  // review the PR docs before agents start writing code.
   pr: null,
+  implement: null,
 };
 
 /**

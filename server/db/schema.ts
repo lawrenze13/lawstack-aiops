@@ -84,7 +84,16 @@ export const tasks = sqliteTable(
       .references(() => users.id, { onDelete: "restrict" }),
     status: text("status", { enum: ["active", "archived"] }).notNull().default("active"),
     currentLane: text("current_lane", {
-      enum: ["ticket", "branch", "brainstorm", "plan", "review", "pr", "done"],
+      enum: [
+        "ticket",
+        "branch",
+        "brainstorm",
+        "plan",
+        "review",
+        "pr",
+        "implement",
+        "done",
+      ],
     })
       .notNull()
       .default("ticket"),
@@ -128,13 +137,21 @@ export const runs = sqliteTable(
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
     lane: text("lane", {
-      enum: ["brainstorm", "plan", "review", "pr"],
+      enum: ["brainstorm", "plan", "review", "pr", "implement"],
     }).notNull(),
     agentId: text("agent_id").notNull(),
     agentConfigSnapshotJson: text("agent_config_snapshot_json").notNull(),
     claudeSessionId: text("claude_session_id"),
     status: text("status", {
-      enum: ["running", "completed", "failed", "stopped", "cost_killed", "interrupted"],
+      enum: [
+        "running",
+        "completed",
+        "failed",
+        "stopped",
+        "cost_killed",
+        "interrupted",
+        "awaiting_input",
+      ],
     })
       .notNull()
       .default("running"),

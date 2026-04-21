@@ -31,6 +31,12 @@ export type ParsedEvent = {
     finalTurns?: number;
     sessionId?: string;
     model?: string;
+    /**
+     * When the final result's text starts with `NEEDS_INPUT:`, this holds
+     * the extracted question (without the marker). Signals the run should
+     * finalise as status='awaiting_input' rather than 'completed'.
+     */
+    needsInputQuestion?: string;
   };
 };
 
@@ -119,10 +125,20 @@ function parseUser(raw: Record<string, unknown>): ParsedEvent {
 function parseResult(raw: Record<string, unknown>): ParsedEvent {
   const cost = typeof raw.total_cost_usd === "number" ? raw.total_cost_usd : undefined;
   const turns = typeof raw.num_turns === "number" ? raw.num_turns : undefined;
+  const resultText = typeof raw.result === "string" ? raw.result.trim() : "";
+
+  // NEEDS_INPUT protocol (lifted from ticket-worker.sh:168-184):
+  // if the agent's final text starts with the marker, extract the question
+  // so the run can finalise as awaiting_input instead of completed.
+  let needsInputQuestion: string | undefined;
+  if (resultText.startsWith("NEEDS_INPUT:")) {
+    needsInputQuestion = resultText.slice("NEEDS_INPUT:".length).trim();
+  }
+
   return {
     type: "result",
     payload: raw,
-    hint: { finalCostUsd: cost, finalTurns: turns },
+    hint: { finalCostUsd: cost, finalTurns: turns, needsInputQuestion },
   };
 }
 
