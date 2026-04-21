@@ -6,7 +6,12 @@ import { db } from "@/server/db/client";
 import { artifacts, auditLog, runs, tasks } from "@/server/db/schema";
 import { audit } from "@/server/auth/audit";
 import { ensureWorktree } from "@/server/git/worktree";
-import { getAgent, snapshotAgent, type Lane } from "@/server/agents/registry";
+import {
+  buildAmendPlanPrompt,
+  getAgent,
+  snapshotAgent,
+  type Lane,
+} from "@/server/agents/registry";
 import { syncAgentRegistry } from "@/server/agents/sync";
 import { AppError, BadRequest, Conflict, NotFound } from "@/server/lib/errors";
 import { env } from "@/server/lib/env";
@@ -33,6 +38,12 @@ export type StartRunParams = {
   initiator: { userId?: string; kind: "user" | "auto_advance" | "system" };
   /** Drop the 10s idempotency window (e.g. for chat messages that must land). */
   bypassIdempotency?: boolean;
+  /**
+   * When true, build the prompt with `buildAmendPlanPrompt` — a Plan re-run
+   * that explicitly addresses findings in the most recent Review.
+   * Only meaningful for lane='plan', agentId='ce:plan'.
+   */
+  amendFromReview?: boolean;
 };
 
 export type StartRunResult = {
@@ -111,15 +122,19 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
   // failures don't block the run.
   const recentCommits = await getRecentCommits(worktree.path);
 
+  const promptContext = {
+    jiraKey: task.jiraKey,
+    title: task.title,
+    description: task.descriptionMd,
+    priorArtifacts: priorArtifacts.map((a) => ({ kind: a.kind, markdown: a.markdown })),
+    recentCommits,
+  };
+
   const prompt = params.overridePrompt
     ? params.overridePrompt
-    : agent.buildPrompt({
-        jiraKey: task.jiraKey,
-        title: task.title,
-        description: task.descriptionMd,
-        priorArtifacts: priorArtifacts.map((a) => ({ kind: a.kind, markdown: a.markdown })),
-        recentCommits,
-      });
+    : params.amendFromReview
+      ? buildAmendPlanPrompt(promptContext)
+      : agent.buildPrompt(promptContext);
 
   const runId = randomUUID();
   const freshSessionId = randomUUID();

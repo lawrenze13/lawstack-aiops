@@ -13,6 +13,8 @@ const Body = z.object({
   lane: z.enum(["brainstorm", "plan", "review", "pr"]),
   agentId: z.string().min(1),
   resumeSessionId: z.string().min(1).optional(),
+  /** When true and lane==='plan', builds the amendment prompt. */
+  amendFromReview: z.boolean().optional(),
 });
 
 export const POST = withAuth(async ({ req, user }) => {
@@ -33,6 +35,7 @@ export const POST = withAuth(async ({ req, user }) => {
     lane: body.lane as Lane,
     agentId: body.agentId,
     resumeSessionId: body.resumeSessionId,
+    amendFromReview: body.amendFromReview,
     initiator: { userId: user.id, kind: "user" },
   });
 

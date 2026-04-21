@@ -11,6 +11,7 @@ import { ChatBox } from "@/components/card-detail/ChatBox";
 import { ArchiveButton } from "@/components/card-detail/ArchiveButton";
 import { RunSidebar } from "@/components/card-detail/RunSidebar";
 import { ApproveButton } from "@/components/card-detail/ApproveButton";
+import { AmendPlanButton } from "@/components/card-detail/AmendPlanButton";
 import { ArtifactPanel } from "@/components/card-detail/ArtifactPanel";
 import { CardMainTabs } from "@/components/card-detail/CardMainTabs";
 import { DescriptionPanel } from "@/components/card-detail/DescriptionPanel";
@@ -157,6 +158,14 @@ export default async function CardDetailPage({ params }: Props) {
     },
   };
 
+  // Extract verdict from the latest Review artifact so we can show the
+  // Amend/Rewrite button when the reviewer found issues.
+  const { extractSummary } = await import("@/server/jira/adf");
+  const latestReview = latestArtifactByKind.get("review");
+  const reviewVerdict = latestReview
+    ? extractSummary(latestReview.markdown, "review").verdict
+    : null;
+
   const prRecord = db.select().from(prRecords).where(eq(prRecords.taskId, id)).limit(1).get();
   const prRecordDTO = prRecord
     ? {
@@ -207,6 +216,13 @@ export default async function CardDetailPage({ params }: Props) {
           <span className="rounded bg-[color:var(--color-muted)] px-2 py-1 font-medium">
             lane: {task.currentLane}
           </span>
+          {reviewVerdict && reviewVerdict !== "READY" ? (
+            <AmendPlanButton
+              taskId={task.id}
+              verdict={reviewVerdict}
+              canControl={canControl}
+            />
+          ) : null}
           <ApproveButton
             taskId={task.id}
             prRecord={prRecordDTO}

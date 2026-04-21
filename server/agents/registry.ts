@@ -100,6 +100,67 @@ Rules:
 `;
 };
 
+// Amendment prompt: used when the user clicks "Amend Plan" after a Review
+// returned AMEND/REWRITE. Produces a revised plan that explicitly addresses
+// every finding in the Review's Incorrect-or-stale + Missing sections.
+export function buildAmendPlanPrompt(ctx: PromptContext): string {
+  const plan = ctx.priorArtifacts?.find((a) => a.kind === "plan")?.markdown ?? "";
+  const review = ctx.priorArtifacts?.find((a) => a.kind === "review")?.markdown ?? "";
+  const brainstorm = ctx.priorArtifacts?.find((a) => a.kind === "brainstorm")?.markdown ?? "";
+  const commitsBlock = ctx.recentCommits
+    ? `
+
+Recent commits on main (freshness context):
+\`\`\`
+${ctx.recentCommits}
+\`\`\``
+    : "";
+  return `You are amending an existing implementation plan for Jira ticket ${ctx.jiraKey} based on a Review that flagged issues.
+
+Use the compound-engineering:ce:plan approach.
+
+Ticket: ${ctx.jiraKey}
+Title: ${ctx.title}
+
+Description:
+${ctx.description || "(no description provided)"}
+
+Brainstorm (background):
+${brainstorm || "(no brainstorm available)"}
+
+Previous Plan (to revise):
+${plan || "(no prior plan available — produce one from scratch)"}
+
+Review findings (ADDRESS EVERY ITEM):
+${review || "(no review available — treat as a fresh Plan run)"}${commitsBlock}
+
+Your job: produce a REVISED plan that fixes every concrete finding in the Review.
+- Every item in the Review's "Incorrect or stale" section must be corrected.
+- Every item in "Missing" must be addressed somewhere in the plan (even
+  briefly — at minimum acknowledge the edge case and call out where it's
+  handled).
+- Preserve the parts listed in "Verified" unless the Missing/Incorrect
+  findings require changing them.
+- Where the Review cited file:line references, re-read those files before
+  writing your correction to make sure your fix is grounded.
+
+Produce ONE file:
+
+  docs/plans/${ctx.jiraKey}-plan.md
+
+  - Overwrite the existing plan with the revised version.
+  - YAML frontmatter: ticket, date, status: draft
+  - Keep it concise and actionable.
+  - Include a short "Amendments from review" section at the end listing
+    what you changed in response to the Review.
+
+Rules:
+- Do NOT modify any source files.
+- Read real files with Read/Grep/Glob to verify claims.
+- Cite real file paths.
+`;
+}
+
 const reviewPrompt = (ctx: PromptContext): string => {
   const brainstorm = ctx.priorArtifacts?.find((a) => a.kind === "brainstorm")?.markdown ?? "";
   const plan = ctx.priorArtifacts?.find((a) => a.kind === "plan")?.markdown ?? "";
