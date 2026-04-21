@@ -46,7 +46,8 @@ type Action =
   | { kind: "event"; row: EventRow }
   | { kind: "end"; status: string; reason: string | null }
   | { kind: "connected"; on: boolean }
-  | { kind: "phase"; phase: State["phase"] };
+  | { kind: "phase"; phase: State["phase"] }
+  | { kind: "resetForRun"; initialCostUsd: number };
 
 // ─── Reducer ───────────────────────────────────────────────────────────────
 
@@ -127,6 +128,19 @@ function reducer(state: State, action: Action): State {
       return { ...state, connected: action.on };
     case "phase":
       return { ...state, phase: action.phase };
+    case "resetForRun":
+      // Clear per-run transient state (ended marker, connection phase,
+      // cost badge) when the viewer switches to a different run. Keeps
+      // state.events intact so the thread view still shows prior runs'
+      // events.
+      return {
+        ...state,
+        ended: null,
+        phase: "initial",
+        connected: false,
+        costUsd: action.initialCostUsd,
+        costState: "ok",
+      };
   }
 }
 
@@ -207,6 +221,15 @@ export function RunLog({
     warned: false,
     killed: false,
   });
+
+  // Reset per-run markers when the current run changes — otherwise a
+  // previous run's 'ended' state leaks into the new run's view and blocks
+  // the toast + auto-refresh logic from firing again.
+  useEffect(() => {
+    toastedRef.current = { ended: false, warned: false, killed: false };
+    dispatch({ kind: "resetForRun", initialCostUsd });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runId]);
 
   useEffect(() => {
     const es = new EventSource(`/api/runs/${runId}/stream`, { withCredentials: true });
