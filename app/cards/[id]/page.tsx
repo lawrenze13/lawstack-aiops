@@ -237,7 +237,16 @@ export default async function CardDetailPage({ params }: Props) {
               prRecordDTO?.state === "pr_opened" ||
               prRecordDTO?.state === "jira_notified"
             }
-            implementStarted={allRuns.some((r) => r.lane === "implement")}
+            // Button hides only for in-flight or successful Implement runs.
+            // Stopped/failed/cost-killed/interrupted runs leave the button
+            // visible so the user can retry.
+            implementStarted={allRuns.some(
+              (r) =>
+                r.lane === "implement" &&
+                (r.status === "running" ||
+                  r.status === "awaiting_input" ||
+                  r.status === "completed"),
+            )}
             runActive={allRuns.some((r) => r.status === "running")}
             canControl={canControl}
           />

@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import readline from "node:readline";
 import { eq, sql } from "drizzle-orm";
 import { db, sqlite } from "@/server/db/client";
-import { messages as messagesTable, runs } from "@/server/db/schema";
+import { messages as messagesTable, runs, tasks } from "@/server/db/schema";
 import { audit } from "@/server/auth/audit";
 import { getRunBus, closeRunBus, type RunEvent } from "./runBus";
 import { runRegistry, type StopReason } from "./runRegistry";
@@ -326,6 +326,37 @@ async function finalize(
       .set({ status, finishedAt: new Date(), killedReason })
       .where(eq(runs.id, runId))
       .run();
+
+    // Implement lane rollback: if an Implement run ended without
+    // completing (stopped / failed / cost-killed / interrupted), roll
+    // the task's current_lane back to 'pr' so the board reflects the
+    // last known-good state. The PR still exists + the approved
+    // artifacts are intact; only the in-flight implementation work
+    // was aborted.
+    const didNotComplete =
+      status === "stopped" ||
+      status === "failed" ||
+      status === "cost_killed" ||
+      status === "interrupted";
+    if (didNotComplete) {
+      const row = db
+        .select({ taskId: runs.taskId, lane: runs.lane })
+        .from(runs)
+        .where(eq(runs.id, runId))
+        .get();
+      if (row?.lane === "implement") {
+        db.update(tasks)
+          .set({ currentLane: "pr", currentRunId: null, updatedAt: new Date() })
+          .where(eq(tasks.id, row.taskId))
+          .run();
+        audit({
+          action: "task.lane_rolled_back",
+          taskId: row.taskId,
+          runId,
+          payload: { from: "implement", to: "pr", reason: status },
+        });
+      }
+    }
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("[spawnAgent] finalize update failed", { runId, err });
