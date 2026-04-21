@@ -1,10 +1,12 @@
 "use client";
 
 import { useMemo, useRef, useState, useTransition } from "react";
-import Link from "next/link";
-import { DragDropProvider } from "@dnd-kit/react";
-import { useSortable } from "@dnd-kit/react/sortable";
-import { move } from "@dnd-kit/helpers";
+import { useRouter } from "next/navigation";
+import {
+  DragDropProvider,
+  useDraggable,
+  useDroppable,
+} from "@dnd-kit/react";
 import { NewTaskDialog } from "./NewTaskDialog";
 
 const LANES = [
@@ -17,6 +19,7 @@ const LANES = [
   { id: "done", label: "Done" },
 ] as const;
 type LaneId = (typeof LANES)[number]["id"];
+const LANE_IDS = LANES.map((l) => l.id) as readonly LaneId[];
 
 type Task = {
   id: string;
@@ -24,6 +27,17 @@ type Task = {
   title: string;
   currentLane: LaneId;
   ownerId: string;
+  runStatus:
+    | "running"
+    | "completed"
+    | "failed"
+    | "stopped"
+    | "cost_killed"
+    | "interrupted"
+    | null;
+  costUsd: number;
+  prState: string | null;
+  prUrl: string | null;
 };
 
 type Props = {
@@ -31,19 +45,25 @@ type Props = {
   scope: "me" | "all";
 };
 
-// Shape the dnd-kit helpers expect — an object keyed by group (lane) with
-// arrays of item ids.
-type ItemsByLane = Record<LaneId, string[]>;
-
 export function Board({ initialTasks, scope }: Props) {
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+  const previousSnapshot = useRef<Task[]>(initialTasks);
 
-  // Derive the per-lane id arrays for dnd-kit.
-  const [items, setItems] = useState<ItemsByLane>(() => groupByLane(initialTasks));
-  const tasksById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
-  const previousItems = useRef<ItemsByLane>(items);
+  const tasksByLane = useMemo(() => {
+    const out: Record<LaneId, Task[]> = {
+      ticket: [],
+      branch: [],
+      brainstorm: [],
+      plan: [],
+      review: [],
+      pr: [],
+      done: [],
+    };
+    for (const t of tasks) out[t.currentLane].push(t);
+    return out;
+  }, [tasks]);
 
   const refresh = () => {
     startTransition(async () => {
@@ -51,7 +71,6 @@ export function Board({ initialTasks, scope }: Props) {
       if (res.ok) {
         const json = (await res.json()) as { tasks: Task[] };
         setTasks(json.tasks);
-        setItems(groupByLane(json.tasks));
       }
     });
   };
@@ -79,8 +98,8 @@ export function Board({ initialTasks, scope }: Props) {
         <div className="flex items-center gap-3">
           {error ? (
             <span className="text-xs text-red-700" title={error}>
-              {error.slice(0, 60)}
-              {error.length > 60 ? "…" : ""}
+              {error.slice(0, 80)}
+              {error.length > 80 ? "…" : ""}
             </span>
           ) : null}
           <NewTaskDialog onCreated={refresh} />
@@ -89,68 +108,54 @@ export function Board({ initialTasks, scope }: Props) {
 
       <DragDropProvider
         onDragStart={() => {
-          previousItems.current = items;
+          previousSnapshot.current = tasks;
           setError(null);
         }}
-        onDragOver={(event) => {
-          setItems((prev) => move(prev, event));
-        }}
         onDragEnd={async (event) => {
-          if (event.canceled) {
-            setItems(previousItems.current);
-            return;
-          }
-          // Find which lane each task ended up in. Persist lane changes
-          // for any task whose lane actually moved.
-          const moves: Array<{ id: string; lane: LaneId }> = [];
-          for (const laneId of Object.keys(items) as LaneId[]) {
-            for (const id of items[laneId]) {
-              const t = tasksById.get(id);
-              if (t && t.currentLane !== laneId) {
-                moves.push({ id, lane: laneId });
-              }
-            }
-          }
-          if (moves.length === 0) return;
+          if (event.canceled) return;
 
-          for (const m of moves) {
-            const res = await fetch(`/api/tasks/${m.id}`, {
-              method: "PATCH",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ lane: m.lane }),
-            });
-            if (!res.ok) {
-              const body = (await res.json().catch(() => ({}))) as { message?: string };
-              setError(body.message ?? `move failed: HTTP ${res.status}`);
-              setItems(previousItems.current);
-              return;
-            }
-          }
+          // The v2 API returns operation.source (draggable) + operation.target
+          // (current droppable, nullable). Find which lane we dropped on.
+          const op = event.operation as unknown as {
+            source: { id: string } | null;
+            target: { id: string } | null;
+          };
+          const taskId = String(op.source?.id ?? "");
+          const targetLane = String(op.target?.id ?? "") as LaneId;
+          if (!taskId || !LANE_IDS.includes(targetLane)) return;
 
-          // Success — update the task list mirror.
+          const src = tasks.find((t) => t.id === taskId);
+          if (!src || src.currentLane === targetLane) return;
+
+          // Optimistic update.
           setTasks((prev) =>
-            prev.map((t) => {
-              const hit = moves.find((m) => m.id === t.id);
-              return hit ? { ...t, currentLane: hit.lane } : t;
-            }),
+            prev.map((t) => (t.id === taskId ? { ...t, currentLane: targetLane } : t)),
           );
+
+          const res = await fetch(`/api/tasks/${taskId}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ lane: targetLane }),
+          });
+          if (!res.ok) {
+            const body = (await res.json().catch(() => ({}))) as { message?: string };
+            setError(body.message ?? `move failed: HTTP ${res.status}`);
+            setTasks(previousSnapshot.current);
+          }
         }}
       >
         <section className="flex flex-1 gap-3 overflow-x-auto p-4">
-          {LANES.map((lane, laneIdx) => (
+          {LANES.map((lane) => (
             <LaneColumn
               key={lane.id}
               id={lane.id}
               label={lane.label}
-              index={laneIdx}
-              count={items[lane.id]?.length ?? 0}
+              count={tasksByLane[lane.id].length}
             >
-              {items[lane.id]?.length ? (
-                items[lane.id].map((id, i) => {
-                  const t = tasksById.get(id);
-                  if (!t) return null;
-                  return <DraggableCard key={id} task={t} index={i} laneId={lane.id} />;
-                })
+              {tasksByLane[lane.id].length > 0 ? (
+                tasksByLane[lane.id].map((t) => (
+                  <DraggableCard key={t.id} task={t} />
+                ))
               ) : (
                 <p className="px-1 py-3 text-xs text-[color:var(--color-muted-foreground)]">
                   No cards
@@ -167,90 +172,136 @@ export function Board({ initialTasks, scope }: Props) {
 function LaneColumn({
   id,
   label,
-  index,
   count,
   children,
 }: {
   id: LaneId;
   label: string;
-  index: number;
   count: number;
   children: React.ReactNode;
 }) {
-  const { ref } = useSortable({
-    id,
-    index,
-    type: "lane",
-    accept: ["item", "lane"],
-    collisionPriority: 1,
-  });
+  const { ref, isDropTarget } = useDroppable({ id, accept: "item" });
   return (
     <div
-      ref={ref as unknown as React.Ref<HTMLDivElement>}
-      className="flex w-72 shrink-0 flex-col rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-muted)]/40"
+      className={`flex w-72 shrink-0 flex-col rounded-lg border bg-[color:var(--color-muted)]/40 transition-colors ${
+        isDropTarget ? "border-blue-500/60 bg-blue-500/5" : "border-[color:var(--color-border)]"
+      }`}
     >
       <div className="flex items-center justify-between border-b border-[color:var(--color-border)] px-3 py-2">
         <span className="text-sm font-medium">{label}</span>
         <span className="text-xs text-[color:var(--color-muted-foreground)]">{count}</span>
       </div>
-      <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-2">{children}</div>
+      <div
+        ref={ref}
+        className="flex min-h-[120px] flex-1 flex-col gap-2 overflow-y-auto p-2"
+      >
+        {children}
+      </div>
     </div>
   );
 }
 
-function DraggableCard({
-  task,
-  index,
-  laneId,
-}: {
-  task: Task;
-  index: number;
-  laneId: LaneId;
-}) {
-  const { ref, isDragging } = useSortable({
+function DraggableCard({ task }: { task: Task }) {
+  const router = useRouter();
+  const { ref, isDragging } = useDraggable({
     id: task.id,
-    index,
     type: "item",
-    accept: "item",
-    group: laneId,
   });
+
+  // Navigate on click — but only if the user didn't drag. dnd-kit's
+  // activation constraint means isDragging flips true only after the
+  // pointer has moved beyond the threshold, so a plain click (no
+  // movement) leaves isDragging=false and the click navigates.
+  // Pointer tracking lets us absolutely avoid the edge case where
+  // click fires at the end of a successful drag.
+  const downRef = useRef<{ x: number; y: number; t: number } | null>(null);
 
   return (
     <div
-      ref={ref as unknown as React.Ref<HTMLDivElement>}
-      className={`rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-card)] shadow-sm ${
-        isDragging ? "opacity-50 ring-2 ring-blue-500/40" : ""
+      ref={ref}
+      data-task-id={task.id}
+      className={`rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-card)] p-3 shadow-sm transition-shadow select-none ${
+        isDragging
+          ? "opacity-40 ring-2 ring-blue-500/60 shadow-lg cursor-grabbing"
+          : "cursor-grab hover:border-blue-500/30"
       }`}
+      onPointerDown={(e) => {
+        downRef.current = { x: e.clientX, y: e.clientY, t: Date.now() };
+      }}
+      onPointerUp={(e) => {
+        const d = downRef.current;
+        downRef.current = null;
+        if (!d || isDragging) return;
+        const dx = Math.abs(e.clientX - d.x);
+        const dy = Math.abs(e.clientY - d.y);
+        const dt = Date.now() - d.t;
+        // Treat as click: movement < 5px AND duration < 500ms.
+        if (dx < 5 && dy < 5 && dt < 500) {
+          router.push(`/cards/${task.id}`);
+        }
+      }}
     >
-      <Link
-        href={`/cards/${task.id}`}
-        className="block p-3"
-        // Prevent link navigation when a drag is in flight.
-        onClick={(e) => {
-          if (isDragging) e.preventDefault();
-        }}
-      >
-        <div className="text-xs font-mono text-[color:var(--color-muted-foreground)]">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-mono text-[color:var(--color-muted-foreground)]">
           {task.jiraKey}
+        </span>
+        <CardStatusBadges task={task} />
+      </div>
+      <div className="mt-1 text-sm font-medium leading-snug">{task.title}</div>
+      {task.costUsd > 0 ? (
+        <div className="mt-1.5 text-[10px] text-[color:var(--color-muted-foreground)]">
+          ${task.costUsd.toFixed(4)}
         </div>
-        <div className="mt-1 text-sm font-medium leading-snug">{task.title}</div>
-      </Link>
+      ) : null}
     </div>
   );
 }
 
-function groupByLane(tasks: Task[]): ItemsByLane {
-  const out: ItemsByLane = {
-    ticket: [],
-    branch: [],
-    brainstorm: [],
-    plan: [],
-    review: [],
-    pr: [],
-    done: [],
-  };
-  for (const t of tasks) {
-    out[t.currentLane].push(t.id);
-  }
-  return out;
+function CardStatusBadges({ task }: { task: Task }) {
+  const s = task.runStatus;
+  return (
+    <span className="flex items-center gap-1">
+      {s === "running" ? (
+        <span
+          className="flex items-center gap-1 rounded border border-green-500/40 bg-green-500/10 px-1 py-0.5 text-[9px] font-medium uppercase text-green-700"
+          title="agent running"
+        >
+          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
+          live
+        </span>
+      ) : null}
+      {s === "failed" || s === "cost_killed" ? (
+        <span
+          className="rounded border border-red-500/40 bg-red-500/10 px-1 py-0.5 text-[9px] font-medium uppercase text-red-700"
+          title={s}
+        >
+          {s === "cost_killed" ? "$$$" : "failed"}
+        </span>
+      ) : null}
+      {s === "interrupted" ? (
+        <span
+          className="rounded border border-amber-500/40 bg-amber-500/10 px-1 py-0.5 text-[9px] font-medium uppercase text-amber-800"
+          title="interrupted — click to resume"
+        >
+          paused
+        </span>
+      ) : null}
+      {task.prState === "jira_notified" || task.prState === "pr_opened" ? (
+        <span
+          className="rounded border border-blue-500/40 bg-blue-500/10 px-1 py-0.5 text-[9px] font-medium uppercase text-blue-700"
+          title={`PR ${task.prState}`}
+        >
+          PR
+        </span>
+      ) : null}
+      {task.prState?.startsWith("failed_at_") ? (
+        <span
+          className="rounded border border-red-500/40 bg-red-500/10 px-1 py-0.5 text-[9px] font-medium uppercase text-red-700"
+          title={task.prState}
+        >
+          PR ✘
+        </span>
+      ) : null}
+    </span>
+  );
 }

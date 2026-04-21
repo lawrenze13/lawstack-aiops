@@ -78,6 +78,25 @@ const CommentResponse = z.object({
   created: z.string().optional(),
 });
 
+const TransitionsResponse = z.object({
+  transitions: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      to: z
+        .object({
+          id: z.string().optional(),
+          name: z.string().optional(),
+          statusCategory: z
+            .object({ key: z.string().optional(), name: z.string().optional() })
+            .optional(),
+        })
+        .optional(),
+    }),
+  ),
+});
+export type JiraTransition = z.infer<typeof TransitionsResponse>["transitions"][number];
+
 // ─── Public surface ────────────────────────────────────────────────────────
 
 /** Search via JQL. Uses the new /search/jql endpoint that replaced /search. */
@@ -125,6 +144,46 @@ export async function postComment(key: string, body: AdfDocument): Promise<strin
   }
   const parsed = CommentResponse.parse(await res.json());
   return parsed.id;
+}
+
+/** List available transitions for an issue. Used to resolve a human-readable
+ * target status name (e.g. "In Progress") to the transition id our workflow
+ * actually uses. */
+export async function getTransitions(key: string): Promise<JiraTransition[]> {
+  const res = await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(key)}/transitions`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`jira getTransitions failed ${res.status}: ${body.slice(0, 300)}`);
+  }
+  return TransitionsResponse.parse(await res.json()).transitions;
+}
+
+/** Transition an issue by human-readable status name. Matches target name
+ * against available transitions' `name` and `to.name` (case-insensitive).
+ * Returns the transition that ran, or null if the target isn't currently
+ * available (e.g. the issue is already in that state, or the workflow
+ * doesn't allow the move from the current state). */
+export async function transitionIssueToName(
+  key: string,
+  targetName: string,
+): Promise<JiraTransition | null> {
+  const transitions = await getTransitions(key);
+  const target = targetName.toLowerCase().trim();
+  const match = transitions.find(
+    (t) =>
+      t.name.toLowerCase() === target ||
+      (t.to?.name ?? "").toLowerCase() === target,
+  );
+  if (!match) return null;
+  const res = await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(key)}/transitions`, {
+    method: "POST",
+    body: JSON.stringify({ transition: { id: match.id } }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`jira transitionIssue failed ${res.status}: ${body.slice(0, 300)}`);
+  }
+  return match;
 }
 
 export { JiraNotConfiguredError };

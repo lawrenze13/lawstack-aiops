@@ -3,12 +3,14 @@ import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { db } from "@/server/db/client";
-import { artifacts, runs, tasks } from "@/server/db/schema";
+import { artifacts, auditLog, runs, tasks } from "@/server/db/schema";
 import { audit } from "@/server/auth/audit";
 import { ensureWorktree } from "@/server/git/worktree";
 import { getAgent, snapshotAgent, type Lane } from "@/server/agents/registry";
 import { syncAgentRegistry } from "@/server/agents/sync";
 import { AppError, BadRequest, Conflict, NotFound } from "@/server/lib/errors";
+import { env } from "@/server/lib/env";
+import { transitionIssueToName } from "@/server/jira/client";
 import { spawnAgent } from "./spawnAgent";
 
 const exec = promisify(execFile);
@@ -179,6 +181,13 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
     },
   });
 
+  // Best-effort: transition the Jira ticket to "In Progress" on the first
+  // user-initiated run so stakeholders watching the ticket see movement.
+  // Skipped for auto_advance (already transitioned on the first lane) and
+  // for resumes. Silent on failure — a missing transition in the workflow
+  // isn't a reason to block the run.
+  void maybeTransitionJiraOnFirstRun(task.id, task.jiraKey, params.initiator.kind);
+
   spawnAgent({
     runId,
     taskId: params.taskId,
@@ -191,6 +200,55 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
   });
 
   return { runId, lane: params.lane, agentId: agent.id };
+}
+
+async function maybeTransitionJiraOnFirstRun(
+  taskId: string,
+  jiraKey: string,
+  initiator: "user" | "auto_advance" | "system",
+): Promise<void> {
+  if (initiator !== "user") return;
+  if (!env.JIRA_BASE_URL || !env.JIRA_API_TOKEN) return;
+
+  try {
+    // Dedupe: if we already transitioned this task once, don't try again.
+    const prior = db
+      .select({ id: auditLog.id })
+      .from(auditLog)
+      .where(
+        and(eq(auditLog.taskId, taskId), eq(auditLog.action, "jira.transitioned")),
+      )
+      .limit(1)
+      .all();
+    if (prior.length > 0) return;
+
+    const target = env.JIRA_START_STATUS;
+    const match = await transitionIssueToName(jiraKey, target);
+    if (match) {
+      audit({
+        action: "jira.transitioned",
+        taskId,
+        payload: { to: target, transitionId: match.id, transitionName: match.name },
+      });
+    } else {
+      audit({
+        action: "jira.transition_skipped",
+        taskId,
+        payload: { to: target, reason: "transition not available from current state" },
+      });
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[jira] transition failed", {
+      jiraKey,
+      error: (err as Error).message,
+    });
+    audit({
+      action: "jira.transition_failed",
+      taskId,
+      payload: { error: (err as Error).message },
+    });
+  }
 }
 
 async function getRecentCommits(worktreePath: string): Promise<string | undefined> {

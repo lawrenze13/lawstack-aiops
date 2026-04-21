@@ -24,6 +24,9 @@ const schema = z.object({
   // Comma-separated list of allowed email domains (case-insensitive).
   // Example: "multiportal.io,hostednetwork.com.au"
   ALLOWED_EMAIL_DOMAINS: z.string().min(1).default("multiportal.io"),
+  // Jira status to transition to when the first agent run starts.
+  // Best-effort — silent no-op if the workflow doesn't expose this transition.
+  JIRA_START_STATUS: z.string().min(1).default("In Progress"),
   JIRA_BASE_URL: optionalStr(z.string().url()),
   JIRA_EMAIL: optionalStr(z.string().email()),
   JIRA_API_TOKEN: optionalStr(z.string().min(1)),

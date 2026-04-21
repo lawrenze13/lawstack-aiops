@@ -246,7 +246,27 @@ export async function approveAndPr(
       jiraWarning = "no PR url captured; skipping Jira comment";
     } else {
       try {
-        const body = prCommentDoc(prUrl, task.title);
+        const artifactsForComment: Array<{
+          kind: "brainstorm" | "plan" | "review";
+          filename: string;
+          markdown: string;
+        }> = [];
+        for (const kind of ["brainstorm", "plan", "review"] as const) {
+          const a = latestArtifacts.get(kind);
+          if (a) {
+            artifactsForComment.push({
+              kind,
+              filename: a.filename,
+              markdown: a.markdown,
+            });
+          }
+        }
+        const body = prCommentDoc({
+          prUrl,
+          jiraKey: task.jiraKey,
+          title: task.title,
+          artifacts: artifactsForComment,
+        });
         jiraCommentId = await postComment(task.jiraKey, body);
         db.update(prRecords)
           .set({ state: "jira_notified", jiraCommentId, updatedAt: new Date() })
