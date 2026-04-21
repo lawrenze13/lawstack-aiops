@@ -12,7 +12,9 @@ import { ArchiveButton } from "@/components/card-detail/ArchiveButton";
 import { RunSidebar } from "@/components/card-detail/RunSidebar";
 import { ApproveButton } from "@/components/card-detail/ApproveButton";
 import { ArtifactPanel } from "@/components/card-detail/ArtifactPanel";
+import { DescriptionPanel } from "@/components/card-detail/DescriptionPanel";
 import { defaultAgentForLane } from "@/server/agents/registry";
+import { env } from "@/server/lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -219,23 +221,17 @@ export default async function CardDetailPage({ params }: Props) {
       </section>
 
       <section className="grid flex-1 min-h-0 grid-cols-12 gap-4 p-4">
-        <aside className="col-span-4 flex flex-col gap-4 overflow-hidden">
+        <aside className="col-span-4 flex min-h-0 flex-col gap-4 overflow-hidden">
           <RunSidebar
             runs={runSummaries}
             currentRunId={currentRun?.id ?? null}
           />
+          <DescriptionPanel
+            descriptionMd={task.descriptionMd}
+            jiraKey={task.jiraKey}
+            jiraUrl={env.JIRA_BASE_URL ? `${env.JIRA_BASE_URL}/browse/${task.jiraKey}` : undefined}
+          />
           <ArtifactPanel artifacts={artifactList} />
-
-          {task.descriptionMd ? (
-            <details className="flex-shrink-0 rounded-lg border border-[color:var(--color-border)] p-3">
-              <summary className="cursor-pointer text-xs font-semibold">
-                Jira description
-              </summary>
-              <pre className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-xs text-[color:var(--color-muted-foreground)]">
-                {task.descriptionMd}
-              </pre>
-            </details>
-          ) : null}
         </aside>
 
         <div className="col-span-8 flex min-h-0 flex-col rounded-lg border border-[color:var(--color-border)]">
