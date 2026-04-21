@@ -246,6 +246,10 @@ export function RunLog({
     killed: false,
     needsInput: false,
   });
+  // Separate flag so we only schedule the post-completion refresh once
+  // per run. If we put the setTimeout inside the same useEffect as the
+  // toast, its cleanup fires on every dep change and clears the timer.
+  const refreshScheduledRef = useRef(false);
 
   // Reset per-run markers when the current run changes — otherwise a
   // previous run's 'ended' state leaks into the new run's view and blocks
@@ -257,6 +261,7 @@ export function RunLog({
       killed: false,
       needsInput: false,
     };
+    refreshScheduledRef.current = false;
     dispatch({ kind: "resetForRun", initialCostUsd });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId]);
@@ -332,17 +337,31 @@ export function RunLog({
           ? state.ended.reason
           : `run ${runId.slice(0, 8)} · $${state.costUsd.toFixed(4)}`,
     });
+  }, [state.ended, state.costUsd, toast, runId]);
 
-    // When a run finishes cleanly, auto-advance may have kicked off the
-    // next lane server-side (finalize() calls maybeAutoAdvance). The task
-    // row's currentRunId is now the NEW run, but the page was rendered
-    // with the old one. Refresh once the auto-advance window has closed
-    // so the UI swaps to streaming the new run.
-    if (state.ended.status === "completed") {
-      const t = setTimeout(() => router.refresh(), 1500);
-      return () => clearTimeout(t);
-    }
-  }, [state.ended, state.costUsd, toast, runId, router]);
+  // Post-completion refresh lives in its OWN effect so the toast
+  // effect's cleanup function doesn't cancel the scheduled setTimeout
+  // whenever an unrelated dependency (state.costUsd, etc.) changes
+  // between the 'end' SSE arriving and 1.5s later.
+  useEffect(() => {
+    if (!state.ended) return;
+    if (refreshScheduledRef.current) return;
+    // Trigger a refresh for any terminal state — auto-advance may have
+    // started the next lane (completed) OR implementComplete may have
+    // moved the task to 'done' (completed) OR a manual Stop just
+    // rolled the lane back to 'pr' (stopped). In all these cases the
+    // server component needs to re-fetch.
+    const terminal =
+      state.ended.status === "completed" ||
+      state.ended.status === "stopped" ||
+      state.ended.status === "failed" ||
+      state.ended.status === "cost_killed" ||
+      state.ended.status === "awaiting_input";
+    if (!terminal) return;
+    refreshScheduledRef.current = true;
+    const t = setTimeout(() => router.refresh(), 1500);
+    return () => clearTimeout(t);
+  }, [state.ended, router]);
 
   useEffect(() => {
     if (state.costState === "warn" && !toastedRef.current.warned) {
