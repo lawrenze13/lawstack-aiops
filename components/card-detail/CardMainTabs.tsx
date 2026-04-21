@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArtifactViewer } from "./ArtifactViewer";
 
 export type CardArtifact = {
@@ -26,7 +27,22 @@ const KIND_LABEL: Record<CardArtifact["kind"], string> = {
 };
 
 export function CardMainTabs({ artifacts, logContent, chatContent }: Props) {
-  const [active, setActive] = useState<TabId>("log");
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const active: TabId =
+    tabParam === "brainstorm" || tabParam === "plan" || tabParam === "review"
+      ? (tabParam as CardArtifact["kind"])
+      : "log";
+
+  const setActive = (next: TabId) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === "log") params.delete("tab");
+    else params.set("tab", next);
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
 
   const ordered = KIND_ORDER.map((k) => artifacts.find((a) => a.kind === k)).filter(
     (a): a is CardArtifact => !!a,
