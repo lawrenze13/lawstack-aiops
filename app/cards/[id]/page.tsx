@@ -85,13 +85,28 @@ export default async function CardDetailPage({ params }: Props) {
     payload: safeParseJson(m.payloadJson),
   }));
 
+  // Derive live turn count from messages rather than trusting runs.num_turns
+  // (which only updates at the final `result` event). This way a still-running
+  // run reports accurate in-flight turns.
+  const assistantCountByRun = new Map<string, number>();
+  for (const m of allMessages) {
+    if (m.type === "assistant") {
+      assistantCountByRun.set(m.runId, (assistantCountByRun.get(m.runId) ?? 0) + 1);
+    }
+  }
+
   const runSummaries = allRuns.map((r) => ({
     id: r.id,
     lane: r.lane,
     agentId: r.agentId,
     status: r.status,
     costUsd: r.costUsdMicros / 1_000_000,
-    numTurns: r.numTurns,
+    // For finished runs, trust runs.num_turns (Claude's own final count).
+    // For in-flight runs, use the live message count.
+    numTurns:
+      r.status === "running"
+        ? (assistantCountByRun.get(r.id) ?? 0)
+        : r.numTurns || (assistantCountByRun.get(r.id) ?? 0),
     startedAt: new Date(r.startedAt).getTime(),
   }));
 
