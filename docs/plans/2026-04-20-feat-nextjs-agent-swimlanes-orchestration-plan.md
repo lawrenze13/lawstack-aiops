@@ -552,9 +552,9 @@ On boot, registry rows are upserted into the `agent_config` cache table with a `
 - [x] Stale-artifact gate on Approve *(blocks when upstream re-ran without regenerating downstream)*
 - [x] ArtifactPanel with collapsible markdown preview of each artifact
 
-**Phase 3B — Deferred (polish):**
-- [ ] dnd-kit board with valid-transition guard (PATCH `/api/tasks/:id` validates lane graph; 409 + snap-back on invalid)
-- [ ] Toast notifications (run complete, approve success, cost warn) via `<ToastHost>` + `<TabBadge>`
+**Phase 3B — Polish:**
+- [x] dnd-kit board with valid-transition guard *(@dnd-kit/react + @dnd-kit/helpers; PATCH /api/tasks/:id gates moves to 'pr' lane on Brainstorm+Plan artifacts; optimistic with snap-back on reject)*
+- [x] Toast notifications *(ToastHost mounted in layout.tsx; RunLog fires on end/cost-warn/cost-kill, ApproveButton fires on approve success/failure; document.title "(N) …" badge when tab is hidden)*
 - [ ] Swap-agent UI to pick a different agent for a lane on retry
 - [ ] `ce:review` prompt split (plan-lane variant vs review-lane variant)
 

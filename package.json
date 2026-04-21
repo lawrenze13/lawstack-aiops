@@ -18,6 +18,8 @@
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.7.4",
+    "@dnd-kit/helpers": "^0.4.0",
+    "@dnd-kit/react": "^0.4.0",
     "better-sqlite3": "^11.7.0",
     "drizzle-orm": "^0.36.4",
     "next": "^15.5.15",

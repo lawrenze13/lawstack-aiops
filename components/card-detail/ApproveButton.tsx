@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useToast } from "@/components/toast/ToastHost";
 
 type PrRecord = {
   state: string;
@@ -25,6 +26,7 @@ type Props = {
 
 export function ApproveButton({ taskId, prRecord, gate, canControl }: Props) {
   const router = useRouter();
+  const toast = useToast();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -59,7 +61,7 @@ export function ApproveButton({ taskId, prRecord, gate, canControl }: Props) {
           taskId={taskId}
           label="Retry Jira comment"
           pending={pending}
-          onRetry={() => runApprove(taskId, startTransition, setError, router.refresh.bind(router))}
+          onRetry={() => runApprove(taskId, startTransition, setError, router.refresh.bind(router), toast.push)}
           error={error}
         />
       </div>
@@ -78,7 +80,7 @@ export function ApproveButton({ taskId, prRecord, gate, canControl }: Props) {
           taskId={taskId}
           label="Retry"
           pending={pending}
-          onRetry={() => runApprove(taskId, startTransition, setError, router.refresh.bind(router))}
+          onRetry={() => runApprove(taskId, startTransition, setError, router.refresh.bind(router), toast.push)}
           error={error}
         />
       </div>
@@ -100,7 +102,7 @@ export function ApproveButton({ taskId, prRecord, gate, canControl }: Props) {
         type="button"
         disabled={disabled}
         onClick={() =>
-          runApprove(taskId, startTransition, setError, router.refresh.bind(router))
+          runApprove(taskId, startTransition, setError, router.refresh.bind(router), toast.push)
         }
         className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-[color:var(--color-muted)] disabled:text-[color:var(--color-muted-foreground)]"
         title={gateErrors.length > 0 ? gateErrors.join(" · ") : "Commit, push, open draft PR, comment on Jira"}
@@ -149,6 +151,7 @@ function runApprove(
   startTransition: (cb: () => void) => void,
   setError: (v: string | null) => void,
   refresh: () => void,
+  toastPush: (t: { kind: "success" | "error" | "warn" | "info"; title: string; body?: string }) => void,
 ): void {
   setError(null);
   startTransition(async () => {
@@ -159,18 +162,36 @@ function runApprove(
       error?: string;
       message?: string;
       jiraWarning?: string | null;
+      prUrl?: string;
     };
     if (!res.ok) {
-      setError(json.message ?? `HTTP ${res.status}`);
+      const msg = json.message ?? `HTTP ${res.status}`;
+      setError(msg);
+      toastPush({ kind: "error", title: "Approve failed", body: msg });
       refresh();
       return;
     }
     if (json.ok === false) {
-      setError(`failed at ${json.failedAt}: ${json.error}`);
+      const msg = `failed at ${json.failedAt}: ${json.error}`;
+      setError(msg);
+      toastPush({ kind: "error", title: "Approve failed", body: msg });
       refresh();
       return;
     }
-    if (json.jiraWarning) setError(json.jiraWarning);
+    if (json.jiraWarning) {
+      setError(json.jiraWarning);
+      toastPush({
+        kind: "warn",
+        title: "PR opened; Jira comment failed",
+        body: json.jiraWarning,
+      });
+    } else {
+      toastPush({
+        kind: "success",
+        title: "PR opened",
+        body: json.prUrl ?? undefined,
+      });
+    }
     refresh();
   });
 }

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState, useTransition } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useToast } from "@/components/toast/ToastHost";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -196,6 +197,14 @@ export function RunLog({
   const scroller = useRef<HTMLDivElement | null>(null);
   const [stopError, setStopError] = useState<string | null>(null);
   const [stopPending, startStop] = useTransition();
+  const toast = useToast();
+  // Toast dedupe: track which transitions we've already fired so reopening
+  // the card doesn't re-toast historical events.
+  const toastedRef = useRef<{ ended: boolean; warned: boolean; killed: boolean }>({
+    ended: false,
+    warned: false,
+    killed: false,
+  });
 
   useEffect(() => {
     const es = new EventSource(`/api/runs/${runId}/stream`, { withCredentials: true });
@@ -246,6 +255,48 @@ export function RunLog({
     const el = scroller.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [state.events.length]);
+
+  // Fire toasts on run transitions. Only for the run currently selected
+  // (runId prop) — historical runs' transitions are silent.
+  useEffect(() => {
+    if (!state.ended || toastedRef.current.ended) return;
+    toastedRef.current.ended = true;
+    const kind =
+      state.ended.status === "completed"
+        ? "success"
+        : state.ended.status === "cost_killed"
+          ? "error"
+          : state.ended.status === "failed"
+            ? "error"
+            : "warn";
+    toast.push({
+      kind,
+      title: `Run ${state.ended.status}`,
+      body:
+        state.ended.reason && state.ended.reason !== "server_restart"
+          ? state.ended.reason
+          : `run ${runId.slice(0, 8)} · $${state.costUsd.toFixed(4)}`,
+    });
+  }, [state.ended, state.costUsd, toast, runId]);
+
+  useEffect(() => {
+    if (state.costState === "warn" && !toastedRef.current.warned) {
+      toastedRef.current.warned = true;
+      toast.push({
+        kind: "warn",
+        title: "Cost warning",
+        body: `$${state.costUsd.toFixed(2)} spent on this run — hard-stop at $15`,
+      });
+    }
+    if (state.costState === "kill" && !toastedRef.current.killed) {
+      toastedRef.current.killed = true;
+      toast.push({
+        kind: "error",
+        title: "Cost cap tripped",
+        body: `Run killed at $${state.costUsd.toFixed(2)}`,
+      });
+    }
+  }, [state.costState, state.costUsd, toast]);
 
   const isRunning = !state.ended && initialStatus === "running";
   const displayStatus = state.ended

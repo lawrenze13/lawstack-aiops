@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ToastHost } from "@/components/toast/ToastHost";
 
 export const metadata: Metadata = {
   title: "multiportal-ai-ops",
@@ -11,7 +12,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <ToastHost>{children}</ToastHost>
+      </body>
     </html>
   );
 }
