@@ -3,6 +3,7 @@
 import { type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArtifactViewer } from "./ArtifactViewer";
+import { ChangesViewer } from "./ChangesViewer";
 
 export type CardArtifact = {
   kind: "brainstorm" | "plan" | "review";
@@ -11,12 +12,16 @@ export type CardArtifact = {
   isStale: boolean;
 };
 
-type TabId = "log" | CardArtifact["kind"];
+type TabId = "log" | CardArtifact["kind"] | "changes";
 
 type Props = {
   artifacts: CardArtifact[];
   logContent: ReactNode;
   chatContent: ReactNode;
+  /** Task id — used by the Changes tab to fetch the diff. */
+  taskId: string;
+  /** Show the Changes tab only when a worktree with commits exists. */
+  showChanges: boolean;
 };
 
 const KIND_ORDER: CardArtifact["kind"][] = ["brainstorm", "plan", "review"];
@@ -26,7 +31,13 @@ const KIND_LABEL: Record<CardArtifact["kind"], string> = {
   review: "Review",
 };
 
-export function CardMainTabs({ artifacts, logContent, chatContent }: Props) {
+export function CardMainTabs({
+  artifacts,
+  logContent,
+  chatContent,
+  taskId,
+  showChanges,
+}: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -34,7 +45,9 @@ export function CardMainTabs({ artifacts, logContent, chatContent }: Props) {
   const active: TabId =
     tabParam === "brainstorm" || tabParam === "plan" || tabParam === "review"
       ? (tabParam as CardArtifact["kind"])
-      : "log";
+      : tabParam === "changes" && showChanges
+        ? "changes"
+        : "log";
 
   const setActive = (next: TabId) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -49,7 +62,9 @@ export function CardMainTabs({ artifacts, logContent, chatContent }: Props) {
   );
 
   const activeArtifact =
-    active === "log" ? null : artifacts.find((a) => a.kind === active);
+    active === "log" || active === "changes"
+      ? null
+      : artifacts.find((a) => a.kind === active);
 
   return (
     <div className="flex h-full flex-col rounded-lg border border-[color:var(--color-border)]">
@@ -74,21 +89,30 @@ export function CardMainTabs({ artifacts, logContent, chatContent }: Props) {
             ) : null}
           </TabButton>
         ))}
+        {showChanges ? (
+          <TabButton
+            key="changes"
+            active={active === "changes"}
+            onClick={() => setActive("changes")}
+          >
+            Changes
+          </TabButton>
+        ) : null}
       </div>
 
       <div key="pane" className="min-h-0 flex-1 overflow-hidden">
-        {active === "log"
-          ? logContent
-          : activeArtifact
-            ? (
-              <ArtifactViewer
-                kind={activeArtifact.kind}
-                filename={activeArtifact.filename}
-                markdown={activeArtifact.markdown}
-                isStale={activeArtifact.isStale}
-              />
-            )
-            : null}
+        {active === "log" ? (
+          logContent
+        ) : active === "changes" ? (
+          <ChangesViewer taskId={taskId} />
+        ) : activeArtifact ? (
+          <ArtifactViewer
+            kind={activeArtifact.kind}
+            filename={activeArtifact.filename}
+            markdown={activeArtifact.markdown}
+            isStale={activeArtifact.isStale}
+          />
+        ) : null}
       </div>
 
       {/* Always-rendered slot — the conditional lives inside so the

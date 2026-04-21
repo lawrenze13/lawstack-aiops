@@ -291,6 +291,14 @@ export default async function CardDetailPage({ params }: Props) {
           {currentRun ? (
             <CardMainTabs
               artifacts={artifactList}
+              taskId={task.id}
+              showChanges={
+                prRecordDTO?.state === "pr_opened" ||
+                prRecordDTO?.state === "jira_notified" ||
+                prRecordDTO?.state === "committed" ||
+                prRecordDTO?.state === "pushed" ||
+                allRuns.some((r) => r.lane === "implement")
+              }
               logContent={
                 <div className="flex h-full flex-col">
                   <div className="min-h-0 flex-1">
@@ -323,6 +331,12 @@ export default async function CardDetailPage({ params }: Props) {
           ) : artifactList.length > 0 ? (
             <CardMainTabs
               artifacts={artifactList}
+              taskId={task.id}
+              showChanges={
+                prRecordDTO?.state === "pr_opened" ||
+                prRecordDTO?.state === "jira_notified" ||
+                allRuns.some((r) => r.lane === "implement")
+              }
               logContent={
                 <p className="p-6 text-sm text-[color:var(--color-muted-foreground)]">
                   No run log yet — but artifacts from a prior session are available in the tabs.
