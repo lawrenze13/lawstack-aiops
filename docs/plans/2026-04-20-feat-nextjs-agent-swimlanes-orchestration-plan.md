@@ -587,10 +587,35 @@ On boot, registry rows are upserted into the `agent_config` cache table with a `
 - [x] ImplementButton in card header (indigo; only shown when PR opened + no implement run yet)
 - [x] implement lane added to enums (SQLite TEXT — no SQL migration)
 
-**Phase 5B — Implementation summary + Jira follow-up (deferred):**
-- [ ] docs/implementation/<key>-implementation.md artifact produced on clean completion
-- [ ] Optional Jira follow-up comment summarising commits + manual-verify list
-- [ ] Fine-tune ce:work prompt based on real runs
+**Phase 5B — Implement completion hooks (deferred):**
+
+When `ce:work` finishes cleanly (no NEEDS_INPUT pause; `result` event with no marker), the server should run a **post-implement finalisation** sequence analogous to `approve.ts`'s 5-step state machine. The user called this out explicitly — the agent shouldn't leave the card in an ambiguous "done? not done?" state; the pipeline should push to conclusion.
+
+Proposed server-side flow in `spawnAgent.finalize()` branch for lane=`implement` + status=`completed`:
+
+- [ ] **Final safety push** — run `git status --porcelain` + `git log origin/ai/<key>..HEAD` in the worktree. If there are uncommitted changes or unpushed commits, add + commit ("chore: implementation cleanup") + push. Guards against the agent declaring "done" while leaving work uncommitted.
+- [ ] **Persist `docs/implementation/<key>-implementation.md` artifact** — read from worktree, upsert into `artifacts` table with kind `'implementation'`. Requires extending `persistArtifacts.ts`'s `LANE_TO_KIND` + enum. Marks the task visibly complete in the ArtifactPanel tabs.
+- [ ] **Extract implementation summary** — new `adf.ts` helper `implementCommentDoc(input)` building an ADF comment with: PR URL (live), commit-list bullet summary (`git log origin/main..HEAD --pretty="%h %s"` from the worktree), sections from the implementation artifact (Verified / Manual verification), closing nudge to undraft the PR.
+- [ ] **Post Jira follow-up comment** — call `postComment(jiraKey, implementCommentDoc(...))`. Non-fatal on failure (surface `jira.implement_comment_failed` audit row + UI warning). Dedupe via audit-log check so repeat runs don't spam comments.
+- [ ] **Transition Jira status to "Code Review"** — new env `JIRA_REVIEW_STATUS` (default `"Code Review"`). Reuses `transitionIssueToName` helper. Same graceful-fallback pattern as `maybeTransitionJiraOnFirstRun`: if the transition isn't available from the current state, log `jira.transition_skipped` and continue. Dedupe via audit log.
+- [ ] **Move task lane to `done`** — UPDATE `tasks.current_lane='done'` so the card visually moves off the active swimlanes and into Done. (Keep `current_run_id` pointing at the implement run for historical reference.)
+
+Wiring:
+- The sequence lives in a new helper `server/git/implementComplete.ts`, callable from `spawnAgent.finalize()` only for `lane === 'implement' && status === 'completed'`.
+- Dedupe matters for each step — runs can technically finalise twice (rare, but possible with race in the reconciler + manual kill). Check for prior audit rows before each external effect.
+- Rollback semantics: if the push step fails, leave task at `implement` lane + surface an error in the RunLog (new `server` event kind `implement_finalisation_error`). Don't move lane to `done` — the user needs to see the problem.
+
+Success criteria additions for Phase 5B:
+- [ ] AC-22: On clean ce:work completion, any uncommitted/unpushed work in the worktree is safety-committed and pushed before any external effects.
+- [ ] AC-23: A Jira comment is posted summarising commits + manual-verify list, with a link to the live PR. Duplicate posts are prevented by audit-log dedupe.
+- [ ] AC-24: Jira status transitions to "Code Review" (via `JIRA_REVIEW_STATUS` env). Silent no-op if the transition isn't allowed from current state.
+- [ ] AC-25: Task `current_lane` moves to `done` after successful finalisation; card leaves active swimlanes.
+- [ ] AC-26: Any step failure in the finalisation sequence leaves the card at `implement` lane with a surfaced error, not stranded between states.
+
+**Out of scope for Phase 5B (stays deferred):**
+- Auto-merge on PR approval (explicitly not — humans control merge)
+- Closing the Jira ticket (we don't know which state is "Done" in each workflow)
+- Fine-tune ce:work prompt based on real runs (ongoing tuning work)
 
 #### Phase 5 (original, now superseded)
 
@@ -728,12 +753,19 @@ This means a CLI script, a future MCP tool, or another Claude Code agent can dri
 - [ ] **AC-15 (artifact files):** Approved artifacts written to `docs/brainstorms/<jira_key>-brainstorm.md` and `docs/plans/<jira_key>-plan.md` in the worktree before commit; commit message format: `docs(<key>): AI <kind>(s) — <agent_id>`.
 - [ ] **AC-16 (concurrent chat, G6):** Per-run PQueue serialises chat messages so `claude --resume` is invoked one at a time; concurrent `Stop` requests after the first 200 return 409.
 
-**Phase 5 (Implementation agent, deferred):**
-- [ ] **AC-17 (implement kick-off):** After Approve & PR, clicking "▶ Implement" starts a `ce:work` run; code commits push to `ai/<key>` within 30s of each logical unit.
-- [ ] **AC-18 (NEEDS_INPUT surface):** When `ce:work` emits a `NEEDS_INPUT:<question>` marker, the card shows a yellow banner + toast within 5s; run status becomes `awaiting_input` (not `running`/`interrupted`).
-- [ ] **AC-19 (NEEDS_INPUT resume):** User answers via ChatBox; fresh `claude --resume` subprocess spawns within 2s; full conversation context preserved.
-- [ ] **AC-20 (implement cost cap):** Hard kill at $30 (raised from standard $15); worktree + already-pushed commits preserved.
-- [ ] **AC-21 (implementation summary):** On clean completion, `docs/implementation/<key>-implementation.md` artifact produced summarising commits + test changes + manual-verify list; optional Jira follow-up comment.
+**Phase 5 (Implementation agent, 5A landed in 052403d):**
+- [x] **AC-17 (implement kick-off):** After Approve & PR, clicking "▶ Implement" starts a `ce:work` run; code commits push to `ai/<key>` within 30s of each logical unit.
+- [x] **AC-18 (NEEDS_INPUT surface):** When `ce:work` emits a `NEEDS_INPUT:<question>` marker, the card shows a yellow banner + toast within 5s; run status becomes `awaiting_input` (not `running`/`interrupted`).
+- [x] **AC-19 (NEEDS_INPUT resume):** User answers via ChatBox; fresh `claude --resume` subprocess spawns within 2s; full conversation context preserved.
+- [x] **AC-20 (implement cost cap):** Hard kill at $30 (raised from standard $15); worktree + already-pushed commits preserved.
+- [ ] **AC-21 (implementation summary):** On clean completion, `docs/implementation/<key>-implementation.md` artifact produced summarising commits + test changes + manual-verify list.
+
+**Phase 5B — Implement completion hooks (to build):**
+- [ ] **AC-22 (final safety push):** Any uncommitted/unpushed work in the worktree is safety-committed and pushed before external effects.
+- [ ] **AC-23 (Jira implementation comment):** Jira comment posted summarising commits + manual-verify list with live PR link; audit-log dedupe prevents duplicate posts.
+- [ ] **AC-24 (Jira "Code Review" transition):** Status transitions to the configured review state (`JIRA_REVIEW_STATUS`, default `"Code Review"`); silent no-op when not allowed from current workflow state.
+- [ ] **AC-25 (lane to done):** Task `current_lane` moves to `done` after successful finalisation.
+- [ ] **AC-26 (finalisation rollback):** Any step failure leaves the card at `implement` with a surfaced error, not stranded.
 
 ### Non-functional requirements
 
