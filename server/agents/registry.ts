@@ -37,6 +37,13 @@ export type PromptContext = {
    * Review prompts so the agent has freshness context about the codebase.
    */
   recentCommits?: string;
+  /**
+   * How many prior reviews exist on this task (before the current run).
+   * Zero on first review, 1 on the second, etc. Review prompt tightens
+   * the "what blocks READY" bar as this climbs — prevents infinite
+   * AMEND loops where the reviewer keeps finding new-but-P2 issues.
+   */
+  priorReviewCount?: number;
 };
 
 const brainstormPrompt = (ctx: PromptContext): string => `You are analyzing Jira ticket ${ctx.jiraKey} in this codebase and producing a brainstorm document.
@@ -173,11 +180,23 @@ ${ctx.recentCommits}
 \`\`\``
     : "";
 
+  const iteration = ctx.priorReviewCount ?? 0;
+  const iterationGuidance =
+    iteration === 0
+      ? "This is the first review pass."
+      : iteration === 1
+        ? "This is the second review — the plan has already been amended once. Focus on blockers; acknowledge that P1/P2 items from prior reviews have been addressed or documented."
+        : `This is review #${iteration + 1} — the plan has been amended ${iteration} times already. The team is iterating toward ship, not toward perfection. Only flag P0 blockers. If you find yourself surfacing new P2s that weren't caught before, the plan is likely READY.`;
+
   // Plan-validation prompt: the agent's job is to check the plan against
   // reality, not survey the codebase from scratch. Catches "the plan refers
   // to a file that doesn't exist" and "the plan assumes X but the code
   // actually does Y" — the kinds of mistakes that cause wasted
   // implementation time downstream.
+  //
+  // Pragmatic shipping: Review's verdict bar is "no P0 blockers", NOT "no
+  // imaginable improvement." P1/P2 findings are notes for the human
+  // reviewer in code review, not reasons to regenerate the plan.
   return `You are validating an implementation plan for Jira ticket ${ctx.jiraKey} against the real codebase.
 
 Use the compound-engineering:ce:review approach.
@@ -194,10 +213,22 @@ ${brainstorm || "(no brainstorm artifact — noted; your review can proceed with
 Plan to validate:
 ${plan || "(no plan artifact was produced — FLAG THIS as the primary issue; a review without a plan is nearly useless)"}${commitsBlock}
 
-Your job: for EACH concrete claim in the Plan (file paths, function names,
-types, assumptions about current behavior, proposed changes), verify it by
-reading the real code in this worktree. Be aggressive — don't assume the
-plan is right.
+**Review iteration:** ${iterationGuidance}
+
+Your job: verify the Plan's **concrete claims** against the real code.
+Focus on correctness, NOT completeness. A plan that is directionally right
+with a few minor gaps should be READY; a human reviewer will catch
+details in PR review. You are not responsible for perfecting the plan.
+
+**Severity definitions — use these strictly**:
+- **P0 (blocking)** — the plan WILL BREAK on implementation: a cited file
+  doesn't exist, a function signature is wrong, an assumption about
+  current behavior is flat wrong. Only P0s trigger AMEND/REWRITE.
+- **P1 (nice to have)** — the plan could be improved but won't break.
+  Mention in the review; do NOT use for verdict decision.
+- **P2 (tangential)** — code you'd touch if you were writing this
+  yourself, but the plan's scope is already sufficient. Mention briefly
+  at most; do NOT block on these.
 
 Produce ONE file:
 
@@ -207,30 +238,40 @@ with YAML frontmatter (ticket, date, status: draft) and these sections:
 
 ## Verified
 List of plan claims that check out, with \`file:line\` references where
-the code matches. Short bullets.
+the code matches. Short bullets. Be generous — if the plan is directionally
+right, list what works.
 
 ## Incorrect or stale
-Claims that don't match the current code. Be specific:
+Only P0 items go here. For each:
   - What the plan says: "..."
   - What the code actually says (with file:line): "..."
   - Proposed correction: "..."
 
 ## Missing
-Edge cases, concurrency issues, error paths, or API surface points the
-plan didn't address. What would break on implementation?
+Only P0 items that the plan must address. Edge cases or additional files
+go into Notes below, not here.
+
+## Notes (optional)
+Non-blocking P1/P2 observations. One bullet each, keep it short.
+These do NOT affect the verdict.
 
 ## Verdict
 Close the file with exactly one of:
-  - **READY** — plan is correct and complete, ship it.
-  - **AMEND** — plan is mostly right but has specific fixable issues
-    (list them as 'P0' / 'P1' in the Incorrect-or-stale section).
-  - **REWRITE** — plan fundamentally misunderstands the code or
-    requirements; regenerate.
+  - **READY** — plan is directionally correct with no P0 blockers.
+    P1/P2 notes are acceptable; human review will handle details.
+    Default to READY unless there is a real P0.
+  - **AMEND** — the plan has one or more P0 blockers that need fixing
+    before implementation.
+  - **REWRITE** — the plan fundamentally misunderstands the code or
+    requirements. Rare.
+
+**Default posture**: if you find yourself debating whether something is
+P0 or P1, it's P1. Ship unless a real blocker exists.
 
 Rules:
 - Do NOT modify any source files.
 - Read real files with Read/Grep/Glob; do not rely on the plan's summaries.
-- Cite real file:line paths in every claim.
+- Cite real file:line paths in every P0 claim.
 - If the Plan is missing, produce a review with verdict REWRITE and
   explain what a plan would need to cover.
 `;

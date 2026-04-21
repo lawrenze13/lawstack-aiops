@@ -122,12 +122,22 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
   // failures don't block the run.
   const recentCommits = await getRecentCommits(worktree.path);
 
+  // Prior-review count for Review prompt iteration awareness. Counting
+  // artifact rows (not runs) gives the number of complete review passes
+  // regardless of retries / stops.
+  const priorReviewCount = db
+    .select({ id: artifacts.id })
+    .from(artifacts)
+    .where(and(eq(artifacts.taskId, task.id), eq(artifacts.kind, "review")))
+    .all().length;
+
   const promptContext = {
     jiraKey: task.jiraKey,
     title: task.title,
     description: task.descriptionMd,
     priorArtifacts: priorArtifacts.map((a) => ({ kind: a.kind, markdown: a.markdown })),
     recentCommits,
+    priorReviewCount,
   };
 
   const prompt = params.overridePrompt
