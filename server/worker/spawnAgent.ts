@@ -267,14 +267,17 @@ async function finalize(
   clearMeter(runId);
 
   try {
+    // Always set killedReason explicitly so a row that was transiently
+    // marked 'interrupted' by a bad reconciler run gets cleaned up when
+    // its subprocess finishes naturally.
+    const killedReason =
+      status === "completed"
+        ? null
+        : status === "failed" || status === "stopped" || status === "cost_killed"
+          ? reason
+          : null;
     db.update(runs)
-      .set({
-        status,
-        finishedAt: new Date(),
-        ...(status === "failed" || status === "stopped" || status === "cost_killed"
-          ? { killedReason: reason }
-          : {}),
-      })
+      .set({ status, finishedAt: new Date(), killedReason })
       .where(eq(runs.id, runId))
       .run();
   } catch (err) {
