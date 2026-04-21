@@ -578,6 +578,39 @@ On boot, registry rows are upserted into the `agent_config` cache table with a `
 - [ ] **Decommission day +14:** archive `ticket-worker.sh` + `ticket-resume.sh` + `claude-stream-to-slack.sh` to `/home/lawrenzem/bin/_archive/`; delete n8n workflows
 - **Success criteria:** Slack bot retired ≤14 days post-launch; AC-6, AC-7, AC-10, AC-12 pass; success metrics met for 1 week.
 
+#### Phase 5: Implementation (post-PR, `ce:work` agent) — deferred to post-MVP
+
+Today's pipeline ends at "draft PR opened with Brainstorm + Plan + Review docs." The human then writes the actual code. Phase 5 extends the pipeline so the agent can start (or complete) the implementation, opening new commits on the same branch, with a structured pause-for-human-clarification loop.
+
+**Motivation**: once the Plan has cleared Review (verdict READY) and been approved, the next expensive step is just "do what the Plan says." That's mechanical code writing on a known-grounded plan — a natural next agent lane. The human role shifts from "write the code" to "answer agent questions + review the final PR."
+
+**Scope**
+- New **Implementation** state on a task after `Approve & PR` succeeds. UI-wise it can be either:
+  - A new "Implement" lane after "PR" (making the lane list: `ticket → branch → brainstorm → plan → review → pr → implement → done`), OR
+  - An action button on the existing "PR" lane that kicks off the implement run. Lean toward option 2 so the board doesn't grow another column.
+- New agent: **`ce:work`**, registered in `server/agents/registry.ts`. Uses the `compound-engineering:ce:work` skill. Runs inside the same worktree with the same `claude --session-id <uuid>` primitives as prior lanes.
+- `ce:work` reads the approved Plan (and Review notes) and implements step-by-step, committing to the feature branch `ai/<JIRA-KEY>` as it goes. Each commit pushes automatically so the PR updates in real time.
+- **NEEDS_INPUT pause-and-resume** pattern (mirror of `ticket-worker.sh:168–184` + `ticket-resume.sh`). When `ce:work` encounters ambiguity — a design decision, a missing credential, a scope call — it pauses with a structured marker. Our stream parser detects it, sets `run.status='awaiting_input'`, and surfaces the question prominently to the user.
+  - Detection: agent's final assistant message starts with `NEEDS_INPUT:` or emits a structured `{ type: 'needs_input', question }` event.
+  - UI:
+    - Yellow banner above the log: *"Agent is waiting on you:"* + the question rendered as markdown.
+    - Toast on the card owner: *"Implementation paused — needs input."*
+    - Tab title badge already flips to "(1) …" (reuses existing behavior).
+    - Chat box becomes the answer mechanism — user types the response, Send → fresh `claude --resume <sessionId> -p "<answer>"` subprocess, agent continues.
+  - New run status: `awaiting_input` (distinct from `running` so UI + reconciler don't treat it as live-streaming or interrupted).
+- **Auto-advance** from PR → Implement is off by default. User clicks "▶ Implement" after they've reviewed the PR docs and are happy with the plan. (Auto-advance would surprise stakeholders; PR review is a human moment.)
+- **Cost caps** — `ce:work` runs are longer + more expensive than planning agents. Raise the soft warn to $10 and hard kill to $30 for this agent specifically, configurable per-agent in the registry. (The existing `costMeter` already reads per-run; just need per-agent overrides.)
+- **Completion signal** — when the agent finishes cleanly with code committed + PR updated, it writes a `docs/implementation/<key>-implementation.md` artifact summarising what changed (scope of each commit, test additions, manual-verification-needed list). This becomes the final PR comment added to Jira.
+
+**Success criteria (Phase 5)**
+- [ ] AC-17: After Approve & PR, clicking "▶ Implement" starts a `ce:work` run; code commits push to the feature branch within 30s of each logical unit.
+- [ ] AC-18: When `ce:work` emits `NEEDS_INPUT:<question>`, the card shows a yellow *"Agent is waiting on you"* banner with the question rendered as markdown within 5s. A toast fires on the card owner. The run's status is `awaiting_input`, not `running`.
+- [ ] AC-19: User answers via ChatBox; a new `claude --resume` subprocess spawns within 2s; previous conversation state is preserved.
+- [ ] AC-20: Cost cap at $30 hard-kills the `ce:work` run; worktree and any already-pushed commits are preserved.
+- [ ] AC-21: On clean completion, a new `implementation-summary` artifact is produced and optionally posted as a follow-up Jira comment.
+
+**Deferred from this plan** — the pause/resume infrastructure largely exists already (session IDs, `--resume`, ChatBox, toast). What's net-new is the `awaiting_input` status, the banner component, and the `ce:work` agent config. Expect ~1–2 sessions to land once the rest of Phase 4 is in prod and stable.
+
 ## Alternative Approaches Considered
 
 | Alternative | Why rejected |
@@ -680,6 +713,13 @@ This means a CLI script, a future MCP tool, or another Claude Code agent can dri
 - [ ] **AC-14 (Jira ADF):** PR comment is posted as ADF (`type:doc, version:1, content[paragraph]`); confirmed visible in Jira UI; failure is non-fatal with a manual-post fallback.
 - [ ] **AC-15 (artifact files):** Approved artifacts written to `docs/brainstorms/<jira_key>-brainstorm.md` and `docs/plans/<jira_key>-plan.md` in the worktree before commit; commit message format: `docs(<key>): AI <kind>(s) — <agent_id>`.
 - [ ] **AC-16 (concurrent chat, G6):** Per-run PQueue serialises chat messages so `claude --resume` is invoked one at a time; concurrent `Stop` requests after the first 200 return 409.
+
+**Phase 5 (Implementation agent, deferred):**
+- [ ] **AC-17 (implement kick-off):** After Approve & PR, clicking "▶ Implement" starts a `ce:work` run; code commits push to `ai/<key>` within 30s of each logical unit.
+- [ ] **AC-18 (NEEDS_INPUT surface):** When `ce:work` emits a `NEEDS_INPUT:<question>` marker, the card shows a yellow banner + toast within 5s; run status becomes `awaiting_input` (not `running`/`interrupted`).
+- [ ] **AC-19 (NEEDS_INPUT resume):** User answers via ChatBox; fresh `claude --resume` subprocess spawns within 2s; full conversation context preserved.
+- [ ] **AC-20 (implement cost cap):** Hard kill at $30 (raised from standard $15); worktree + already-pushed commits preserved.
+- [ ] **AC-21 (implementation summary):** On clean completion, `docs/implementation/<key>-implementation.md` artifact produced summarising commits + test changes + manual-verify list; optional Jira follow-up comment.
 
 ### Non-functional requirements
 
