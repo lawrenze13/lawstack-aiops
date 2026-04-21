@@ -1,20 +1,29 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { eq, desc, and, isNull } from "drizzle-orm";
+import { asc, eq, desc, and, isNull } from "drizzle-orm";
 import { auth } from "@/server/auth/config";
 import { db } from "@/server/db/client";
-import { runs, tasks } from "@/server/db/schema";
+import { messages, runs, tasks } from "@/server/db/schema";
 import { RunLog } from "@/components/card-detail/RunLog";
 import { RunStarter } from "@/components/card-detail/RunStarter";
 import { ResumeBanner } from "@/components/card-detail/ResumeBanner";
 import { ChatBox } from "@/components/card-detail/ChatBox";
 import { ArchiveButton } from "@/components/card-detail/ArchiveButton";
+import { RunSidebar } from "@/components/card-detail/RunSidebar";
 import { defaultAgentForLane } from "@/server/agents/registry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Props = { params: Promise<{ id: string }> };
+
+function safeParseJson(s: string): unknown {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return { raw: s };
+  }
+}
 
 export default async function CardDetailPage({ params }: Props) {
   const session = await auth();
@@ -24,17 +33,62 @@ export default async function CardDetailPage({ params }: Props) {
   const task = db.select().from(tasks).where(eq(tasks.id, id)).get();
   if (!task) notFound();
 
-  // Latest live (non-superseded) run per lane.
-  const liveRuns = db
+  // All runs for this task, ordered by when they started. We show every
+  // run in the thread log (not only non-superseded ones) so history is
+  // complete; the sidebar lets the user jump between them.
+  const allRuns = db
     .select()
     .from(runs)
-    .where(and(eq(runs.taskId, id), isNull(runs.supersededAt)))
-    .orderBy(desc(runs.startedAt))
+    .where(eq(runs.taskId, id))
+    .orderBy(asc(runs.startedAt))
     .all();
 
+  const liveRuns = allRuns.filter((r) => r.supersededAt === null);
+
   const currentRun = task.currentRunId
-    ? liveRuns.find((r) => r.id === task.currentRunId)
-    : liveRuns[0];
+    ? allRuns.find((r) => r.id === task.currentRunId)
+    : liveRuns[liveRuns.length - 1] ?? allRuns[allRuns.length - 1];
+
+  // Thread view: pull every message from every run on this task, ordered
+  // chronologically, so the RunLog can render the full conversation (Brainstorm
+  // → Plan → chat replies) as one continuous log.
+  const allMessages = db
+    .select({
+      runId: messages.runId,
+      seq: messages.seq,
+      type: messages.type,
+      payloadJson: messages.payloadJson,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .innerJoin(runs, eq(messages.runId, runs.id))
+    .where(eq(runs.taskId, id))
+    .orderBy(asc(messages.createdAt), asc(messages.seq))
+    .all();
+
+  const threadEvents = allMessages.map((m) => ({
+    runId: m.runId,
+    seq: m.seq,
+    type: m.type as
+      | "system"
+      | "assistant"
+      | "user"
+      | "stream_event"
+      | "result"
+      | "server"
+      | "end",
+    payload: safeParseJson(m.payloadJson),
+  }));
+
+  const runSummaries = allRuns.map((r) => ({
+    id: r.id,
+    lane: r.lane,
+    agentId: r.agentId,
+    status: r.status,
+    costUsd: r.costUsdMicros / 1_000_000,
+    numTurns: r.numTurns,
+    startedAt: new Date(r.startedAt).getTime(),
+  }));
 
   const brainstormAgent = defaultAgentForLane("brainstorm");
   const planAgent = defaultAgentForLane("plan");
@@ -99,34 +153,18 @@ export default async function CardDetailPage({ params }: Props) {
       </section>
 
       <section className="grid flex-1 min-h-0 grid-cols-12 gap-4 p-4">
-        <aside className="col-span-4 overflow-y-auto rounded-lg border border-[color:var(--color-border)] p-3">
-          <h2 className="text-sm font-semibold">Runs</h2>
-          {liveRuns.length === 0 ? (
-            <p className="mt-2 text-xs text-[color:var(--color-muted-foreground)]">
-              No runs yet. Click a button above to start one.
-            </p>
-          ) : (
-            <ul className="mt-2 space-y-2">
-              {liveRuns.map((r) => (
-                <li
-                  key={r.id}
-                  className={`rounded border px-2 py-1.5 text-xs ${currentRun?.id === r.id ? "border-blue-500/40 bg-blue-500/5" : "border-[color:var(--color-border)]"}`}
-                >
-                  <div className="font-mono">{r.lane}</div>
-                  <div className="text-[color:var(--color-muted-foreground)]">
-                    {r.agentId} · {r.status} · ${(r.costUsdMicros / 1_000_000).toFixed(4)}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+        <aside className="col-span-4 flex flex-col gap-4 overflow-hidden">
+          <RunSidebar
+            runs={runSummaries}
+            currentRunId={currentRun?.id ?? null}
+          />
 
           {task.descriptionMd ? (
-            <details className="mt-4">
+            <details className="flex-shrink-0 rounded-lg border border-[color:var(--color-border)] p-3">
               <summary className="cursor-pointer text-xs font-semibold">
                 Jira description
               </summary>
-              <pre className="mt-2 max-h-64 overflow-y-auto whitespace-pre-wrap text-xs text-[color:var(--color-muted-foreground)]">
+              <pre className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap text-xs text-[color:var(--color-muted-foreground)]">
                 {task.descriptionMd}
               </pre>
             </details>
@@ -137,15 +175,13 @@ export default async function CardDetailPage({ params }: Props) {
           {currentRun ? (
             <>
               <div className="min-h-0 flex-1">
-                {/* key={currentRun.id} forces a fresh RunLog when the run
-                    changes (e.g., chat spawns a new run) so old events,
-                    `ended` state, and "end of log" divider don't leak over. */}
                 <RunLog
-                  key={currentRun.id}
                   runId={currentRun.id}
                   initialStatus={currentRun.status}
                   initialCostUsd={currentRun.costUsdMicros / 1_000_000}
                   initialStartedAtMs={new Date(currentRun.startedAt).getTime()}
+                  threadEvents={threadEvents}
+                  runs={runSummaries}
                   canControl={
                     (session.user as { role?: string } | undefined)?.role === "admin" ||
                     task.ownerId === (session.user as { id?: string } | undefined)?.id

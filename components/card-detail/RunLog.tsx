@@ -6,7 +6,9 @@ import remarkGfm from "remark-gfm";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
-type EventRow = {
+export type EventRow = {
+  /** Which run emitted this event. Required for cross-run dedup. */
+  runId: string;
   seq: number;
   type:
     | "system"
@@ -49,7 +51,15 @@ type Action =
 function reducer(state: State, action: Action): State {
   switch (action.kind) {
     case "event": {
-      if (state.events.some((e) => e.seq === action.row.seq)) return state;
+      // Dedupe by (runId, seq) composite so events from different runs
+      // never collide and SSE replay after the initial server-fetch doesn't
+      // double-insert rows we already have.
+      if (
+        state.events.some(
+          (e) => e.runId === action.row.runId && e.seq === action.row.seq,
+        )
+      )
+        return state;
 
       let next = { ...state, events: [...state.events, action.row] };
 
@@ -131,12 +141,30 @@ const initial: State = {
 
 // ─── Component ─────────────────────────────────────────────────────────────
 
+type RunSummary = {
+  id: string;
+  lane: string;
+  agentId: string;
+  status: string;
+  numTurns: number;
+  costUsd: number;
+  startedAt: number;
+};
+
 type Props = {
   runId: string;
   initialStatus: string;
   initialCostUsd: number;
   /** ms since epoch when the run started; drives the live elapsed counter. */
   initialStartedAtMs: number;
+  /**
+   * Persisted events from ALL runs on this task, chronologically ordered.
+   * Used to seed the log so chat replies, auto-advanced lanes, and prior
+   * runs are all visible in one continuous thread.
+   */
+  threadEvents: EventRow[];
+  /** Metadata for each run — feeds per-run headers in the log stream. */
+  runs: RunSummary[];
   canControl: boolean;
 };
 
@@ -145,11 +173,25 @@ export function RunLog({
   initialStatus,
   initialCostUsd,
   initialStartedAtMs,
+  threadEvents,
+  runs,
   canControl,
 }: Props) {
-  const [state, dispatch] = useReducer(reducer, {
-    ...initial,
-    costUsd: initialCostUsd,
+  // Seed state.events from the server-fetched thread history so reloads
+  // and navigations show the full conversation immediately, without
+  // waiting for SSE replay.
+  const [state, dispatch] = useReducer(reducer, undefined, () => {
+    const seeded: State = {
+      ...initial,
+      costUsd: initialCostUsd,
+    };
+    // Run the reducer's event-add logic for each thread event so derived
+    // state (toolResults, outputTokensByMessage, costUsd) is populated.
+    const reduced = threadEvents.reduce(
+      (acc, row) => reducer(acc, { kind: "event", row }),
+      seeded,
+    );
+    return reduced;
   });
   const scroller = useRef<HTMLDivElement | null>(null);
   const [stopError, setStopError] = useState<string | null>(null);
@@ -178,7 +220,9 @@ export function RunLog({
         es.close();
         return;
       }
-      dispatch({ kind: "event", row: { seq, type, payload } });
+      // Tag events with the current run's id so they dedupe cleanly against
+      // the server-seeded thread history.
+      dispatch({ kind: "event", row: { runId, seq, type, payload } });
       scheduleLive();
     };
 
@@ -320,7 +364,12 @@ export function RunLog({
         {state.events.length === 0 ? (
           <p className="text-[color:var(--color-muted-foreground)]">Waiting for events…</p>
         ) : (
-          <EventStream events={state.events} toolResults={state.toolResults} />
+          <EventStream
+            events={state.events}
+            toolResults={state.toolResults}
+            runs={runs}
+            currentRunId={runId}
+          />
         )}
         {state.ended ? (
           <div className="mt-4 border-t border-dashed border-[color:var(--color-border)] pt-2 text-[10px] uppercase tracking-wide text-[color:var(--color-muted-foreground)]">
@@ -414,33 +463,104 @@ function formatTokens(n: number): string {
 function EventStream({
   events,
   toolResults,
+  runs,
+  currentRunId,
 }: {
   events: EventRow[];
   toolResults: Record<string, ToolResult>;
+  runs: RunSummary[];
+  currentRunId: string;
 }) {
+  // Group consecutive events by runId so we can inject per-run headers.
+  const runsById = new Map(runs.map((r) => [r.id, r]));
+  const groups: Array<{ runId: string; events: EventRow[] }> = [];
+  for (const e of events) {
+    const last = groups[groups.length - 1];
+    if (last && last.runId === e.runId) last.events.push(e);
+    else groups.push({ runId: e.runId, events: [e] });
+  }
+
   let turnIndex = 0;
+  let runOrdinal = 0;
+
   return (
     <>
-      {events.map((e) => {
-        if (e.type === "assistant") {
-          turnIndex++;
-          return (
-            <AssistantTurn
-              key={e.seq}
-              payload={e.payload}
-              turn={turnIndex}
-              toolResults={toolResults}
-            />
-          );
-        }
-        if (e.type === "system") return <SystemLine key={e.seq} payload={e.payload} />;
-        if (e.type === "result") return <ResultLine key={e.seq} payload={e.payload} />;
-        if (e.type === "server") return <ServerLine key={e.seq} payload={e.payload} />;
-        // user events are rendered inline under their corresponding tool_use;
-        // tool-level errors are handled there.
-        return null;
+      {groups.map((g, gi) => {
+        runOrdinal++;
+        const meta = runsById.get(g.runId);
+        return (
+          <section key={`${g.runId}-${gi}`} id={`run-${g.runId}`} className="scroll-mt-4">
+            {meta ? (
+              <RunHeader
+                ordinal={runOrdinal}
+                meta={meta}
+                isCurrent={meta.id === currentRunId}
+              />
+            ) : null}
+            {g.events.map((e) => {
+              if (e.type === "assistant") {
+                turnIndex++;
+                return (
+                  <AssistantTurn
+                    key={`${e.runId}:${e.seq}`}
+                    payload={e.payload}
+                    turn={turnIndex}
+                    toolResults={toolResults}
+                  />
+                );
+              }
+              if (e.type === "system")
+                return <SystemLine key={`${e.runId}:${e.seq}`} payload={e.payload} />;
+              if (e.type === "result")
+                return <ResultLine key={`${e.runId}:${e.seq}`} payload={e.payload} />;
+              if (e.type === "server")
+                return <ServerLine key={`${e.runId}:${e.seq}`} payload={e.payload} />;
+              return null;
+            })}
+          </section>
+        );
       })}
     </>
+  );
+}
+
+function RunHeader({
+  ordinal,
+  meta,
+  isCurrent,
+}: {
+  ordinal: number;
+  meta: RunSummary;
+  isCurrent: boolean;
+}) {
+  const statusColor =
+    meta.status === "running"
+      ? "bg-green-500/15 text-green-700 border-green-500/40"
+      : meta.status === "completed"
+        ? "bg-blue-500/10 text-blue-700 border-blue-500/30"
+        : meta.status === "failed" || meta.status === "cost_killed"
+          ? "bg-red-500/15 text-red-700 border-red-500/40"
+          : "bg-amber-500/15 text-amber-800 border-amber-500/40";
+  return (
+    <div
+      className={`mb-2 mt-4 flex items-center gap-2 border-t pt-2 first:mt-0 first:border-t-0 first:pt-0 ${isCurrent ? "border-blue-500/30" : "border-[color:var(--color-border)]"}`}
+    >
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-[color:var(--color-muted-foreground)]">
+        Run {ordinal} · {meta.lane}
+      </span>
+      <span className="font-mono text-[10px] text-[color:var(--color-muted-foreground)]">
+        {meta.agentId}
+      </span>
+      <span className={`rounded border px-1.5 py-0.5 text-[9px] uppercase ${statusColor}`}>
+        {meta.status}
+      </span>
+      <span className="text-[10px] text-[color:var(--color-muted-foreground)]">
+        {meta.numTurns} turn{meta.numTurns === 1 ? "" : "s"} · ${meta.costUsd.toFixed(4)}
+      </span>
+      {isCurrent ? (
+        <span className="text-[10px] font-medium text-blue-700">← current</span>
+      ) : null}
+    </div>
   );
 }
 
