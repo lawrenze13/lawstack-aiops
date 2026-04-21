@@ -12,6 +12,7 @@ import { ArchiveButton } from "@/components/card-detail/ArchiveButton";
 import { RunSidebar } from "@/components/card-detail/RunSidebar";
 import { ApproveButton } from "@/components/card-detail/ApproveButton";
 import { ArtifactPanel } from "@/components/card-detail/ArtifactPanel";
+import { CardMainTabs } from "@/components/card-detail/CardMainTabs";
 import { DescriptionPanel } from "@/components/card-detail/DescriptionPanel";
 import { defaultAgentForLane } from "@/server/agents/registry";
 import { env } from "@/server/lib/env";
@@ -234,41 +235,53 @@ export default async function CardDetailPage({ params }: Props) {
           <ArtifactPanel artifacts={artifactList} />
         </aside>
 
-        <div className="col-span-8 flex min-h-0 flex-col rounded-lg border border-[color:var(--color-border)]">
+        <div className="col-span-8 flex min-h-0 flex-col">
           {currentRun ? (
-            <>
-              <div className="min-h-0 flex-1">
-                <RunLog
-                  runId={currentRun.id}
-                  initialStatus={currentRun.status}
-                  initialCostUsd={currentRun.costUsdMicros / 1_000_000}
-                  initialStartedAtMs={new Date(currentRun.startedAt).getTime()}
-                  threadEvents={threadEvents}
-                  runs={runSummaries}
-                  canControl={
-                    (session.user as { role?: string } | undefined)?.role === "admin" ||
-                    task.ownerId === (session.user as { id?: string } | undefined)?.id
-                  }
-                />
-              </div>
-              {currentRun.claudeSessionId &&
-              ((session.user as { role?: string } | undefined)?.role === "admin" ||
-                task.ownerId === (session.user as { id?: string } | undefined)?.id) ? (
-                <ChatBox
-                  runId={currentRun.id}
-                  canSend={currentRun.status !== "running"}
-                  blockedReason={
-                    currentRun.status === "running"
-                      ? "Run is still streaming — click Stop to chat."
-                      : undefined
-                  }
-                />
-              ) : null}
-            </>
+            <CardMainTabs
+              artifacts={artifactList}
+              logContent={
+                <div className="flex h-full flex-col">
+                  <div className="min-h-0 flex-1">
+                    <RunLog
+                      runId={currentRun.id}
+                      initialStatus={currentRun.status}
+                      initialCostUsd={currentRun.costUsdMicros / 1_000_000}
+                      initialStartedAtMs={new Date(currentRun.startedAt).getTime()}
+                      threadEvents={threadEvents}
+                      runs={runSummaries}
+                      canControl={canControl}
+                    />
+                  </div>
+                </div>
+              }
+              chatContent={
+                currentRun.claudeSessionId && canControl ? (
+                  <ChatBox
+                    runId={currentRun.id}
+                    canSend={currentRun.status !== "running"}
+                    blockedReason={
+                      currentRun.status === "running"
+                        ? "Run is still streaming — click Stop to chat."
+                        : undefined
+                    }
+                  />
+                ) : null
+              }
+            />
+          ) : artifactList.length > 0 ? (
+            <CardMainTabs
+              artifacts={artifactList}
+              logContent={
+                <p className="p-6 text-sm text-[color:var(--color-muted-foreground)]">
+                  No run log yet — but artifacts from a prior session are available in the tabs.
+                </p>
+              }
+              chatContent={null}
+            />
           ) : (
-            <p className="p-6 text-sm text-[color:var(--color-muted-foreground)]">
+            <div className="flex h-full items-center justify-center rounded-lg border border-[color:var(--color-border)] p-6 text-sm text-[color:var(--color-muted-foreground)]">
               No active run for this card. Start one above to see live agent output here.
-            </p>
+            </div>
           )}
         </div>
       </section>
