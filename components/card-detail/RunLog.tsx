@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useReducer, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useToast } from "@/components/toast/ToastHost";
@@ -198,6 +199,7 @@ export function RunLog({
   const [stopError, setStopError] = useState<string | null>(null);
   const [stopPending, startStop] = useTransition();
   const toast = useToast();
+  const router = useRouter();
   // Toast dedupe: track which transitions we've already fired so reopening
   // the card doesn't re-toast historical events.
   const toastedRef = useRef<{ ended: boolean; warned: boolean; killed: boolean }>({
@@ -277,7 +279,17 @@ export function RunLog({
           ? state.ended.reason
           : `run ${runId.slice(0, 8)} · $${state.costUsd.toFixed(4)}`,
     });
-  }, [state.ended, state.costUsd, toast, runId]);
+
+    // When a run finishes cleanly, auto-advance may have kicked off the
+    // next lane server-side (finalize() calls maybeAutoAdvance). The task
+    // row's currentRunId is now the NEW run, but the page was rendered
+    // with the old one. Refresh once the auto-advance window has closed
+    // so the UI swaps to streaming the new run.
+    if (state.ended.status === "completed") {
+      const t = setTimeout(() => router.refresh(), 1500);
+      return () => clearTimeout(t);
+    }
+  }, [state.ended, state.costUsd, toast, runId, router]);
 
   useEffect(() => {
     if (state.costState === "warn" && !toastedRef.current.warned) {
