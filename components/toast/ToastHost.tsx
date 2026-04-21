@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -75,8 +76,15 @@ export function ToastHost({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // Memo the context value so consumers' useEffect deps (e.g. the refresh
+  // scheduler in RunLog) don't re-run whenever a toast fires. Without
+  // this, pushing a toast triggers a ToastHost re-render → new {push}
+  // object → every useEffect depending on `toast` re-runs → their
+  // cleanups cancel whatever they'd scheduled.
+  const ctxValue = useMemo(() => ({ push }), [push]);
+
   return (
-    <Ctx.Provider value={{ push }}>
+    <Ctx.Provider value={ctxValue}>
       {children}
       <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex flex-col gap-2">
         {toasts.map((t) => (

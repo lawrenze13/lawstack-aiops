@@ -262,6 +262,7 @@ export function RunLog({
       needsInput: false,
     };
     refreshScheduledRef.current = false;
+    needsInputRefreshScheduledRef.current = false;
     dispatch({ kind: "resetForRun", initialCostUsd });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId]);
@@ -383,10 +384,6 @@ export function RunLog({
   }, [state.costState, state.costUsd, toast]);
 
   // Fire a toast + flash attention when the agent pauses for input.
-  // Also refresh the server component so the card page re-fetches
-  // currentRun.status — ChatBox's canSend prop gates on status !==
-  // 'running', so without the refresh the chat would stay disabled
-  // even after the backend flipped the row to 'awaiting_input'.
   useEffect(() => {
     if (!state.needsInputQuestion || toastedRef.current.needsInput) return;
     toastedRef.current.needsInput = true;
@@ -395,11 +392,22 @@ export function RunLog({
       title: "Agent is waiting on you",
       body: state.needsInputQuestion.slice(0, 160),
     });
+  }, [state.needsInputQuestion, toast]);
+
+  // Separate refresh effect — without this the setTimeout would get
+  // cancelled when the toast push triggers a ToastHost re-render and
+  // consumers see a new `toast` ref (since cleanup runs on dep change,
+  // not only on unmount). Keep deps minimal and use a ref to prevent
+  // double-scheduling.
+  const needsInputRefreshScheduledRef = useRef(false);
+  useEffect(() => {
+    if (!state.needsInputQuestion || needsInputRefreshScheduledRef.current) return;
+    needsInputRefreshScheduledRef.current = true;
     // Small delay so the subprocess kill + DB status-flip finalise
     // before we re-render.
     const t = setTimeout(() => router.refresh(), 800);
     return () => clearTimeout(t);
-  }, [state.needsInputQuestion, toast, router]);
+  }, [state.needsInputQuestion, router]);
 
   const isRunning = !state.ended && initialStatus === "running";
   const displayStatus = state.ended
