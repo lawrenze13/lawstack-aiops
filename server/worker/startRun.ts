@@ -15,7 +15,12 @@ import {
 import { syncAgentRegistry } from "@/server/agents/sync";
 import { AppError, BadRequest, Conflict, NotFound } from "@/server/lib/errors";
 import { env } from "@/server/lib/env";
-import { transitionIssueToName } from "@/server/jira/client";
+import {
+  assignIssue,
+  getIssueAssignee,
+  getMyself,
+  transitionIssueToName,
+} from "@/server/jira/client";
 import { spawnAgent } from "./spawnAgent";
 
 const exec = promisify(execFile);
@@ -249,6 +254,31 @@ async function maybeTransitionJiraOnFirstRun(
       .limit(1)
       .all();
     if (prior.length > 0) return;
+
+    // Many workflows require an assignee before allowing a status
+    // transition ("Item must be assigned" 400). If the issue is
+    // unassigned, auto-assign to the API token user so the transition
+    // can proceed. Don't touch already-assigned issues — those are
+    // someone else's to own.
+    try {
+      const current = await getIssueAssignee(jiraKey);
+      if (!current) {
+        const me = await getMyself();
+        await assignIssue(jiraKey, me.accountId);
+        audit({
+          action: "jira.auto_assigned",
+          taskId,
+          payload: { jiraKey, accountId: me.accountId, reason: "unassigned_before_transition" },
+        });
+      }
+    } catch (err) {
+      // Non-fatal — try the transition anyway; if it fails we log below.
+      // eslint-disable-next-line no-console
+      console.warn("[jira] auto-assign before transition failed", {
+        jiraKey,
+        error: (err as Error).message,
+      });
+    }
 
     const target = env.JIRA_START_STATUS;
     const match = await transitionIssueToName(jiraKey, target);

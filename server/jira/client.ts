@@ -146,6 +146,67 @@ export async function postComment(key: string, body: AdfDocument): Promise<strin
   return parsed.id;
 }
 
+const MyselfResponse = z.object({
+  accountId: z.string(),
+  displayName: z.string().optional(),
+  emailAddress: z.string().optional(),
+});
+
+const IssueAssigneeResponse = z.object({
+  fields: z.object({
+    assignee: z
+      .object({ accountId: z.string(), displayName: z.string().optional() })
+      .nullable()
+      .optional(),
+  }),
+});
+
+// Cached so repeated calls during a single run don't re-hit Jira.
+let _myselfPromise: Promise<{ accountId: string }> | null = null;
+
+/** Fetch the authenticated user (the JIRA_EMAIL/JIRA_API_TOKEN owner). */
+export async function getMyself(): Promise<{ accountId: string }> {
+  if (_myselfPromise) return _myselfPromise;
+  _myselfPromise = (async () => {
+    const res = await jiraFetch(`/rest/api/3/myself`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`jira getMyself failed ${res.status}: ${body.slice(0, 300)}`);
+    }
+    const parsed = MyselfResponse.parse(await res.json());
+    return { accountId: parsed.accountId };
+  })();
+  return _myselfPromise;
+}
+
+/** Current assignee (null if unassigned). */
+export async function getIssueAssignee(
+  key: string,
+): Promise<{ accountId: string } | null> {
+  const res = await jiraFetch(
+    `/rest/api/3/issue/${encodeURIComponent(key)}?fields=assignee`,
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`jira getIssueAssignee failed ${res.status}: ${body.slice(0, 300)}`);
+  }
+  const parsed = IssueAssigneeResponse.parse(await res.json());
+  if (!parsed.fields.assignee) return null;
+  return { accountId: parsed.fields.assignee.accountId };
+}
+
+/** Assign an issue. `accountId=null` unassigns. */
+export async function assignIssue(key: string, accountId: string | null): Promise<void> {
+  const res = await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(key)}/assignee`, {
+    method: "PUT",
+    body: JSON.stringify({ accountId }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`jira assignIssue failed ${res.status}: ${body.slice(0, 300)}`);
+  }
+}
+
 /** List available transitions for an issue. Used to resolve a human-readable
  * target status name (e.g. "In Progress") to the transition id our workflow
  * actually uses. */
