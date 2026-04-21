@@ -48,10 +48,16 @@ export function CardMainTabs({ artifacts, logContent, chatContent }: Props) {
     (a): a is CardArtifact => !!a,
   );
 
+  const activeArtifact =
+    active === "log" ? null : artifacts.find((a) => a.kind === active);
+
   return (
     <div className="flex h-full flex-col rounded-lg border border-[color:var(--color-border)]">
-      <div className="flex items-center gap-1 border-b border-[color:var(--color-border)] px-2 py-1.5 text-xs">
-        <TabButton active={active === "log"} onClick={() => setActive("log")}>
+      <div
+        key="tabs"
+        className="flex items-center gap-1 border-b border-[color:var(--color-border)] px-2 py-1.5 text-xs"
+      >
+        <TabButton key="log" active={active === "log"} onClick={() => setActive("log")}>
           Run log
         </TabButton>
         {ordered.map((a) => (
@@ -70,26 +76,24 @@ export function CardMainTabs({ artifacts, logContent, chatContent }: Props) {
         ))}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-hidden">
-        {active === "log" ? (
-          logContent
-        ) : (
-          (() => {
-            const a = artifacts.find((x) => x.kind === active);
-            if (!a) return null;
-            return (
+      <div key="pane" className="min-h-0 flex-1 overflow-hidden">
+        {active === "log"
+          ? logContent
+          : activeArtifact
+            ? (
               <ArtifactViewer
-                kind={a.kind}
-                filename={a.filename}
-                markdown={a.markdown}
-                isStale={a.isStale}
+                kind={activeArtifact.kind}
+                filename={activeArtifact.filename}
+                markdown={activeArtifact.markdown}
+                isStale={activeArtifact.isStale}
               />
-            );
-          })()
-        )}
+            )
+            : null}
       </div>
 
-      {active === "log" ? chatContent : null}
+      {/* Always-rendered slot — the conditional lives inside so the
+          sibling list stays stable across active-tab changes. */}
+      <div key="chat-slot">{active === "log" ? chatContent : null}</div>
     </div>
   );
 }
