@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useToast } from "@/components/toast/ToastHost";
 
 type Props = {
   runId: string;
@@ -13,6 +14,7 @@ type Props = {
 
 export function ChatBox({ runId, canSend, blockedReason }: Props) {
   const router = useRouter();
+  const toast = useToast();
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -29,8 +31,22 @@ export function ChatBox({ runId, canSend, blockedReason }: Props) {
         body: JSON.stringify({ text: trimmed, clientRequestId }),
       });
       if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { message?: string };
-        setError(j.message ?? `HTTP ${res.status}`);
+        const j = (await res.json().catch(() => ({}))) as {
+          message?: string;
+          retryAfterSec?: number;
+        };
+        const msg = j.message ?? `HTTP ${res.status}`;
+        setError(msg);
+        if (res.status === 429) {
+          toast.push({
+            kind: "warn",
+            title: "Slow down",
+            body:
+              j.retryAfterSec !== undefined
+                ? `Try again in ${j.retryAfterSec}s`
+                : msg,
+          });
+        }
         return;
       }
       setText("");

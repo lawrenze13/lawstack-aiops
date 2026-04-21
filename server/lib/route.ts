@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/server/auth/config";
-import { AppError, Unauthorized } from "./errors";
+import { AppError, TooManyRequests, Unauthorized } from "./errors";
 
 type Handler<T> = (ctx: {
   req: Request;
@@ -36,6 +36,14 @@ export function errorResponse(err: unknown): Response {
     return NextResponse.json(
       { error: "validation_error", issues: err.flatten() },
       { status: 400 },
+    );
+  }
+  if (err instanceof TooManyRequests) {
+    const headers: Record<string, string> = {};
+    if (err.retryAfterSec !== undefined) headers["Retry-After"] = String(err.retryAfterSec);
+    return NextResponse.json(
+      { error: err.name, message: err.message, retryAfterSec: err.retryAfterSec },
+      { status: err.status, headers },
     );
   }
   if (err instanceof AppError) {

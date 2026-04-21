@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx server/db/migrate-cli.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "cron:nightly": "tsx server/cron/nightly.ts"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.7.4",

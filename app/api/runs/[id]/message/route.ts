@@ -1,13 +1,20 @@
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { withAuth } from "@/server/lib/route";
-import { BadRequest, Conflict, Forbidden, NotFound } from "@/server/lib/errors";
+import {
+  BadRequest,
+  Conflict,
+  Forbidden,
+  NotFound,
+  TooManyRequests,
+} from "@/server/lib/errors";
 import { db } from "@/server/db/client";
 import { runs, tasks } from "@/server/db/schema";
 import { audit } from "@/server/auth/audit";
 import { runRegistry } from "@/server/worker/runRegistry";
 import { startRun } from "@/server/worker/startRun";
 import { withRunLock } from "@/server/worker/chatMutex";
+import { rateLimit } from "@/server/lib/rateLimit";
 import type { Lane } from "@/server/agents/registry";
 
 export const runtime = "nodejs";
@@ -26,6 +33,22 @@ export const POST = withAuth(async ({ req, user }) => {
   if (!runId) throw new BadRequest("missing run id");
 
   const body = Body.parse(await req.json());
+
+  // Rate limit: 20 messages per user per run per rolling 60s window.
+  // Protects the worktree + Claude session from chat-spam races.
+  const rl = rateLimit(`msg:${user.id}:${runId}`, 20, 60_000);
+  if (!rl.ok) {
+    audit({
+      action: "chat.rate_limited",
+      actorUserId: user.id,
+      runId,
+      payload: { retryAfterSec: rl.retryAfterSec },
+    });
+    throw new TooManyRequests(
+      `You're sending messages too fast. Try again in ${rl.retryAfterSec}s.`,
+      { retryAfterSec: rl.retryAfterSec },
+    );
+  }
 
   // All the critical section (read → validate → spawn) must serialise per run
   // so two tabs can't both win the "resume the session" race.

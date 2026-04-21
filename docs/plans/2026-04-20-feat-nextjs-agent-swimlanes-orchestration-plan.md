@@ -563,15 +563,19 @@ On boot, registry rows are upserted into the `agent_config` cache table with a `
 
 #### Phase 4: Hardening + cutover (week 4)
 
-- `/admin/ops` page: stuck runs, cost/day, worktree disk usage
-- Audit log writer wired into every state-changing route
-- Rate limiting on `/api/runs/:id/message` (20/min/user/run)
-- Nightly cron (systemd timer): worktree pruner, `messages` 90-day prune (audit_log untouched), `wal_checkpoint(TRUNCATE)` weekly
-- Caddy site config: `flush_interval -1` on the `/api/runs/*/stream` reverse_proxy block
-- systemd unit for the Next.js process (`KillMode=mixed` so child Claude PIDs are reaped on stop)
-- **Dark-launch (days 1–7):** dual-write — keep n8n/Slack flow active; the new app subscribes to the same Jira webhook as a *read-only* observer that writes tasks but never sends Slack/PR/Jira comments. Team uses both; compare outputs; tune.
-- **Cut-over day:** disable n8n outbound nodes (don't delete); enable new app outbound; monitor 48h. Rollback = single n8n toggle + new-app outbound flag.
-- **Decommission day +14:** archive `ticket-worker.sh` + `ticket-resume.sh` + `claude-stream-to-slack.sh` to `/home/lawrenzem/bin/_archive/` with a README pointing to the new system; delete the n8n workflows.
+**Phase 4A — Code/config landed:**
+- [x] `/admin/ops` page *(app/admin/ops/page.tsx; admin-role gated; stuck runs (status=running + no heartbeat in 90s), failed runs last 24h, cost by day, audit log last 50, worktree disk via `du`, per-run Kill button via POST /api/admin/kill-run)*
+- [x] Audit log writer wired into state-changing routes *(task.created, task.archived, task.lane_changed, run.started_request/started/stopped/finalized/interrupted, artifact.persisted, approve.completed, jira.transitioned/skipped/failed, chat.rate_limited, admin.kill_run — comprehensive)*
+- [x] Rate limiting on `/api/runs/:id/message` *(20/min/user/run, sliding window in server/lib/rateLimit.ts; 429 + Retry-After header; ChatBox surfaces via toast)*
+- [x] Nightly cron *(server/cron/nightly.ts — prunes messages > 90d, removes archived+old worktrees, nulls orphan heartbeats, wal_checkpoint(TRUNCATE) Sundays; runnable via `npm run cron:nightly`; systemd timer example in docs/deploy.md)*
+- [x] Caddy site config *(documented in docs/deploy.md with `flush_interval -1` + `read_timeout 0` for /api/runs/*/stream)*
+- [x] systemd unit *(documented in docs/deploy.md with `KillMode=mixed`, `ExecStartPre=npm run db:migrate`, `Restart=on-failure`)*
+
+**Phase 4B — Still to do (process + dark-launch gate):**
+- [ ] `DARK_LAUNCH=true` env guard that short-circuits outbound calls (postComment, transitionIssueToName, gh pr create) for dual-run period
+- [ ] **Dark-launch (days 1–7):** dual-write against real Jira webhook traffic, no outbound from aiops
+- [ ] **Cut-over day:** disable n8n outbound; enable aiops outbound; monitor 48h
+- [ ] **Decommission day +14:** archive `ticket-worker.sh` + `ticket-resume.sh` + `claude-stream-to-slack.sh` to `/home/lawrenzem/bin/_archive/`; delete n8n workflows
 - **Success criteria:** Slack bot retired ≤14 days post-launch; AC-6, AC-7, AC-10, AC-12 pass; success metrics met for 1 week.
 
 ## Alternative Approaches Considered

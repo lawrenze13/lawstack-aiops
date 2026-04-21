@@ -25,4 +25,9 @@ export class Conflict extends AppError {
 }
 export class TooManyRequests extends AppError {
   override status = 429;
+  retryAfterSec?: number;
+  constructor(message: string, opts?: { cause?: unknown; retryAfterSec?: number }) {
+    super(message, opts);
+    if (opts?.retryAfterSec !== undefined) this.retryAfterSec = opts.retryAfterSec;
+  }
 }
