@@ -103,11 +103,19 @@ function ToastCard({
   toast: Toast;
   onDismiss: () => void;
 }) {
-  const palette: Record<ToastKind, string> = {
-    success: "border-green-500/40 bg-green-500/10 text-green-900",
-    error: "border-red-500/40 bg-red-500/10 text-red-900",
-    warn: "border-amber-500/40 bg-amber-500/10 text-amber-900",
-    info: "border-blue-500/40 bg-blue-500/10 text-blue-900",
+  // Solid backgrounds + left accent border per kind. Text resolves through
+  // our theme vars so dark mode keeps high contrast.
+  const accent: Record<ToastKind, string> = {
+    success: "border-l-green-500",
+    error: "border-l-red-500",
+    warn: "border-l-amber-500",
+    info: "border-l-blue-500",
+  };
+  const iconColor: Record<ToastKind, string> = {
+    success: "text-green-600",
+    error: "text-red-600",
+    warn: "text-amber-600",
+    info: "text-blue-600",
   };
   const icon: Record<ToastKind, string> = {
     success: "✓",
@@ -118,17 +126,23 @@ function ToastCard({
   return (
     <div
       role="status"
-      className={`pointer-events-auto flex w-80 items-start gap-3 rounded-md border px-3 py-2 text-xs shadow-lg ${palette[toast.kind]}`}
+      className={`pointer-events-auto flex w-80 items-start gap-3 rounded-md border border-l-4 bg-[color:var(--color-card)] px-3 py-2.5 text-xs text-[color:var(--color-foreground)] shadow-xl border-[color:var(--color-border)] ${accent[toast.kind]}`}
     >
-      <span className="mt-0.5 text-sm">{icon[toast.kind]}</span>
+      <span className={`mt-0.5 text-sm font-bold ${iconColor[toast.kind]}`}>
+        {icon[toast.kind]}
+      </span>
       <div className="flex-1">
         <div className="font-semibold">{toast.title}</div>
-        {toast.body ? <div className="mt-0.5 text-[11px] opacity-90">{toast.body}</div> : null}
+        {toast.body ? (
+          <div className="mt-0.5 text-[11px] text-[color:var(--color-muted-foreground)]">
+            {toast.body}
+          </div>
+        ) : null}
       </div>
       <button
         type="button"
         onClick={onDismiss}
-        className="ml-auto text-[10px] opacity-60 hover:opacity-100"
+        className="ml-auto text-[color:var(--color-muted-foreground)] hover:text-[color:var(--color-foreground)]"
         aria-label="dismiss"
       >
         ✕
