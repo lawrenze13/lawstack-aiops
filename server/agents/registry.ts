@@ -369,25 +369,24 @@ ${review || "(no review artifact — proceed but flag anything the plan doesn't 
 
 ## Your job
 
-Execute the Plan. Write real code, run tests where applicable, and commit
-incrementally to the current branch (\`ai/${ctx.jiraKey}\`). The draft PR
-on this branch will update in real time as you push.
+Execute the Plan. Write real code, run tests where applicable. Leave the
+changes uncommitted in the working tree — the server commits and pushes
+in a single follow-up step after you finish.
 
-## Commit + push cadence
+## ⚠ Do NOT commit or push
 
-Use the Bash tool to commit after each logical unit of work — one file,
-one feature, one test. Good commit messages are important; the human
-PR reviewer reads them.
+Do NOT run \`git add\`, \`git commit\`, \`git checkout -b\`, \`git push\`,
+\`git stash\`, \`git reset\`, \`git rebase\`, or any other state-changing
+git command. The post-implement finalisation on the server side:
+  - Stages all changes you left in the working tree (\`git add -A\`).
+  - Builds one commit with a message referencing this Jira ticket.
+  - Pushes to \`ai/${ctx.jiraKey}\` so the draft PR updates.
 
-\`\`\`
-git add <specific files>
-git commit -m "feat(<scope>): <what + why in one line>
+You may freely run read-only git commands (\`git status\`, \`git diff\`,
+\`git log\`, \`git blame\`, \`git ls-files\`) to understand the repo.
 
-<optional body explaining the non-obvious parts>"
-git push
-\`\`\`
-
-Do NOT batch many unrelated changes into one commit. Do NOT force-push.
+Why: a single, clean commit by the server is easier for the human PR
+reviewer than a scattered string of intermediate commits.
 
 ## When to pause and ask${ctx.interactive ? " (beyond permission requests)" : ""}
 
@@ -419,14 +418,19 @@ Do NOT use NEEDS_INPUT for:
 ## Finishing
 
 When the implementation is complete:
-1. Ensure all commits are pushed.
+1. Run \`git status\` to verify your changes are present in the working
+   tree (uncommitted is correct — server will commit them).
 2. Write \`docs/implementation/${ctx.jiraKey}-implementation.md\` with:
    - One short paragraph of what changed.
-   - Bullet list of commits (hash + one-line message).
+   - Bullet list of files touched and why (since there are no commits
+     for the reviewer to scan, the file-by-file summary is important).
    - "Manual verification" section: what the human should check before
      undrafting the PR.
-3. Your final message should summarise the work and include the PR link
-   (check via \`gh pr list --head ai/${ctx.jiraKey} --json url\`).
+3. Your final message should summarise the work briefly. The server
+   will automatically:
+     - stage everything, commit with a single message, push
+     - post a Jira comment with the file list + summary
+     - transition the Jira ticket to "Code Review"
 
 ## Rules
 
