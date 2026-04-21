@@ -196,6 +196,36 @@ export function spawnAgent(p: SpawnAgentParams): void {
 
     persistAndEmit(ev.type as RunEvent["type"], ev.payload);
 
+    // Mid-stream NEEDS_INPUT: the agent embedded a pause marker in an
+    // assistant text block (typical for Interactive mode where the agent
+    // asks permission before each Bash). Flip the run to awaiting_input
+    // now and gracefully stop the subprocess so the user can reply via
+    // chat without waiting for the whole run to finish.
+    if (
+      ev.type === "assistant" &&
+      ev.hint?.needsInputQuestion &&
+      !needsInputQuestion
+    ) {
+      needsInputQuestion = ev.hint.needsInputQuestion;
+      persistAndEmit("server", {
+        kind: "needs_input",
+        question: needsInputQuestion,
+      });
+      // Flip status immediately so a UI refresh unlocks the ChatBox
+      // without waiting for the subprocess to exit.
+      try {
+        db.update(runs)
+          .set({ status: "awaiting_input" })
+          .where(eq(runs.id, p.runId))
+          .run();
+      } catch {
+        // ignore
+      }
+      // SIGTERM the child; finalize will keep status='awaiting_input'
+      // because needsInputQuestion is set.
+      stop("user");
+    }
+
     // Cost meter — observe assistant usage blocks, may warn or hard-kill.
     if (ev.type === "assistant") {
       const usage = (ev.payload as { message?: { usage?: unknown } }).message?.usage as
@@ -270,10 +300,12 @@ export function spawnAgent(p: SpawnAgentParams): void {
   child.on("exit", (code, signal) => {
     persistAndEmit("server", { kind: "exit", code, signal });
     let status = decideExitStatus(code, signal, lastStopReason);
-    // NEEDS_INPUT: agent signalled a clarification request before exiting.
-    // Override completed → awaiting_input so the UI surfaces a yellow
-    // banner + chat-to-answer flow instead of "run completed."
-    if (status === "completed" && needsInputQuestion) {
+    // NEEDS_INPUT: agent signalled a clarification request. Override
+    // completed/stopped → awaiting_input so the UI shows the chat-to-
+    // answer flow instead of a terminal state. (stopped is what we land
+    // on if NEEDS_INPUT was mid-stream and we SIGTERM'd; completed is
+    // what we land on if NEEDS_INPUT was in the final result text.)
+    if (needsInputQuestion && (status === "completed" || status === "stopped")) {
       status = "awaiting_input";
     }
     const reasonTag = lastStopReason ? `${lastStopReason}:` : "";

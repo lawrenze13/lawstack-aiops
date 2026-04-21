@@ -101,12 +101,26 @@ function parseAssistant(raw: Record<string, unknown>): ParsedEvent {
   }
 
   const hint: NonNullable<ParsedEvent["hint"]> = {};
-  if (textParts.length > 0) hint.text = textParts.join("\n").slice(0, 4000);
+  const joinedText = textParts.join("\n");
+  if (textParts.length > 0) hint.text = joinedText.slice(0, 4000);
   if (tools.length > 0) {
     const t = tools[0]!;
     hint.toolName = t.name;
     hint.toolInputSummary = summariseToolInput(t.name, t.input);
   }
+
+  // Mid-stream NEEDS_INPUT detection: if any text block starts with the
+  // marker, surface the question. spawnAgent will flip the run to
+  // awaiting_input and kill the subprocess so the user can reply via chat.
+  // Match leading whitespace + optional bold/italic wrappers Claude
+  // sometimes adds.
+  const needsMatch = joinedText.match(
+    /(?:^|\n)\s*(?:\*\*|__)?NEEDS_INPUT(?:\*\*|__)?\s*:\s*([\s\S]*?)(?:\n\n(?:##|$)|$)/,
+  );
+  if (needsMatch && needsMatch[1]) {
+    hint.needsInputQuestion = needsMatch[1].trim();
+  }
+
   return { type: "assistant", payload: raw, hint };
 }
 
