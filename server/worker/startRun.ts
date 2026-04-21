@@ -193,6 +193,7 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
       agentId: agent.id,
       resume: !!params.resumeSessionId,
       initiator: params.initiator.kind,
+      amendFromReview: params.amendFromReview ?? false,
     },
   });
 

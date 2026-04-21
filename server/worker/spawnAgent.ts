@@ -308,9 +308,10 @@ async function finalize(
 
   audit({ action: "run.finalized", runId, payload: { status, reason } });
 
-  // On clean completion: persist the produced artifact, then auto-advance
-  // to the next lane. Artifact persistence happens first so the next lane's
-  // agent prompt picks up the fresh upstream file via priorArtifacts.
+  // On clean completion: persist the produced artifact, post any
+  // milestone Jira comments, then auto-advance to the next lane.
+  // Artifact persistence happens first so downstream readers pick up the
+  // fresh file via priorArtifacts.
   if (status === "completed") {
     try {
       const { persistArtifactsForRun } = await import("./persistArtifacts");
@@ -319,6 +320,27 @@ async function finalize(
       // eslint-disable-next-line no-console
       console.error("[spawnAgent] artifact persistence failed", { runId, err });
     }
+
+    // If this run was a Plan amendment (user clicked "Amend Plan from
+    // Review"), post a follow-up Jira comment summarising what changed
+    // so stakeholders see the iteration in the ticket.
+    try {
+      const { wasAmendmentRun, postAmendmentComment } = await import(
+        "@/server/jira/amendComment"
+      );
+      if (wasAmendmentRun(runId)) {
+        const run = db
+          .select({ taskId: runs.taskId })
+          .from(runs)
+          .where(eq(runs.id, runId))
+          .get();
+        if (run) await postAmendmentComment(runId, run.taskId);
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[spawnAgent] amend comment failed", { runId, err });
+    }
+
     try {
       const { maybeAutoAdvance } = await import("./autoAdvance");
       await maybeAutoAdvance(runId);
