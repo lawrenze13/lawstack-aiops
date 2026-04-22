@@ -291,6 +291,36 @@ export const auditLog = sqliteTable(
   }),
 );
 
+// ─── Settings (wizard-backed config) ───────────────────────────────────────
+//
+// Flat key/value table. `value` is JSON-encoded so one column handles
+// strings, numbers, booleans, arrays, etc. Read via server/lib/config.ts;
+// NEVER via direct db.select — the getConfig helper layers DB → process.env
+// → zod defaults and caches results.
+export const settings = sqliteTable("settings", {
+  key: text("key").primaryKey(),
+  // JSON.stringify of the typed value. Never write a raw string here.
+  value: text("value").notNull(),
+  updatedBy: text("updated_by"),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+});
+
+// Single-row bootstrap token for first-run /setup access. The CHECK
+// constraint enforces exactly one row; instrumentation.ts inserts (id=1,
+// token=uuid) if users is empty. Burned by the auth signIn callback
+// on first admin creation (used_at = now → subsequent /setup?token=X
+// returns 403).
+export const setupTokens = sqliteTable("setup_tokens", {
+  id: integer("id").primaryKey(),
+  token: text("token").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+  usedAt: integer("used_at", { mode: "timestamp_ms" }),
+});
+
 // ─── Type exports for the app ──────────────────────────────────────────────
 
 export type User = typeof users.$inferSelect;
@@ -304,3 +334,5 @@ export type Artifact = typeof artifacts.$inferSelect;
 export type Worktree = typeof worktrees.$inferSelect;
 export type PrRecord = typeof prRecords.$inferSelect;
 export type AuditLogRow = typeof auditLog.$inferSelect;
+export type SettingRow = typeof settings.$inferSelect;
+export type SetupTokenRow = typeof setupTokens.$inferSelect;

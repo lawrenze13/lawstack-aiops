@@ -523,8 +523,53 @@ export const AGENTS = {
 
 export type AgentId = keyof typeof AGENTS;
 
+// ─── Runtime overrides via settings table ────────────────────────────────────
+//
+// Admin can tweak cost caps + model per agent via /admin/settings. Stored as a
+// single JSON blob in `AGENT_OVERRIDES` (see server/lib/config.ts) so one row
+// covers every agent without the settings table exploding. Prompts, maxTurns,
+// and permissionMode stay in this file — code-owned, PR-reviewed, versioned.
+
+type AgentOverrideFields = {
+  costWarnUsd?: number;
+  costKillUsd?: number;
+  model?: string;
+};
+
+function parseAgentOverrides(
+  raw: string,
+): Record<string, AgentOverrideFields> {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      return parsed as Record<string, AgentOverrideFields>;
+    }
+  } catch {
+    // fall through
+  }
+  return {};
+}
+
 export function getAgent(id: string): AgentConfig | undefined {
-  return (AGENTS as Record<string, AgentConfig>)[id];
+  const base = (AGENTS as Record<string, AgentConfig>)[id];
+  if (!base) return undefined;
+
+  // Lazy import to avoid a circular dep at module-load time (config.ts →
+  // db/client → .env chain). By the time getAgent is called at runtime,
+  // both modules are resolved.
+  //
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { getConfig } = require("@/server/lib/config") as typeof import("@/server/lib/config");
+  const overrides = parseAgentOverrides(getConfig("AGENT_OVERRIDES") ?? "{}");
+  const o = overrides[id] ?? {};
+  return {
+    ...base,
+    model: typeof o.model === "string" ? o.model : base.model,
+    costWarnUsd:
+      typeof o.costWarnUsd === "number" ? o.costWarnUsd : base.costWarnUsd,
+    costKillUsd:
+      typeof o.costKillUsd === "number" ? o.costKillUsd : base.costKillUsd,
+  };
 }
 
 export function defaultAgentForLane(lane: Lane): AgentId | undefined {
