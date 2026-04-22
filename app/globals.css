@@ -1,50 +1,98 @@
-@import "tailwindcss";
+/*
+ * HeroUI v3 is imported first — its entry file brings in tailwindcss + its
+ * layered token/theme system. Importing HeroUI's styles establishes the
+ * canonical `--accent`, `--foreground`, `--surface`, etc. CSS custom
+ * properties under `:root` / `.dark` selectors.
+ */
+@import "@heroui/styles";
 @plugin "@tailwindcss/typography";
 
-@theme {
-  --color-background: oklch(1 0 0);
-  --color-foreground: oklch(0.145 0 0);
-  --color-card: oklch(1 0 0);
-  --color-card-foreground: oklch(0.145 0 0);
-  --color-muted: oklch(0.97 0 0);
-  --color-muted-foreground: oklch(0.556 0 0);
+/*
+ * Switch Tailwind's dark variant from the default prefers-color-scheme
+ * media query to a class on html/body. next-themes sets `html.dark` via
+ * its ThemeProvider, which is how HeroUI v3 also derives its dark tokens.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ─── "Signal room" overrides ────────────────────────────────────────────────
+   Reject HeroUI's default blue accent. This orchestrator is a dev-ops tool —
+   electric green matches its terminal-operator soul (see the brainstorm at
+   docs/design/ and the plan at docs/plans/…heroui-migration…). Tighter
+   radius than HeroUI's 0.5rem default. */
+:root,
+.light,
+[data-theme="light"] {
+  --accent: oklch(0.82 0.18 145);
+  --accent-foreground: oklch(0.145 0 0);
+  --radius: 0.375rem; /* 6px */
+}
+
+.dark,
+[data-theme="dark"] {
+  --accent: oklch(0.82 0.18 145);
+  --accent-foreground: oklch(0.145 0 0);
+  --radius: 0.375rem;
+}
+
+/* ─── Legacy --color-* alias layer ───────────────────────────────────────────
+   Existing components (pre-Phase-2 migration) reference these vars via
+   arbitrary values like `bg-[color:var(--color-foreground)]`. Keep them
+   working by pointing each alias at HeroUI's v3 token. After the migration
+   completes in Phase 4, this block goes away. */
+:root,
+.light {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--surface-foreground);
+  --color-muted: var(--surface-secondary);
+  --color-muted-foreground: var(--muted);
   --color-border: oklch(0.922 0 0);
-  --color-ring: oklch(0.708 0 0);
-  --radius: 0.5rem;
+  --color-ring: var(--accent);
 }
 
-@media (prefers-color-scheme: dark) {
-  @theme {
-    --color-background: oklch(0.145 0 0);
-    --color-foreground: oklch(0.985 0 0);
-    --color-card: oklch(0.205 0 0);
-    --color-card-foreground: oklch(0.985 0 0);
-    --color-muted: oklch(0.269 0 0);
-    --color-muted-foreground: oklch(0.708 0 0);
-    --color-border: oklch(0.27 0 0);
-    --color-ring: oklch(0.439 0 0);
-  }
+.dark {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--surface-foreground);
+  --color-muted: var(--surface-secondary);
+  --color-muted-foreground: var(--muted);
+  --color-border: oklch(0.27 0 0);
+  --color-ring: var(--accent);
 }
 
-html, body {
-  background: var(--color-background);
-  color: var(--color-foreground);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+html,
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family:
+    var(--font-body),
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
+  font-size: 13px; /* "signal room" tight base — 11/12/13/15 scale */
+  line-height: 1.35;
 }
 
-/* Typography prose overrides.
-   The @tailwindcss/typography plugin applies its own defaults that
-   don't respect our oklch() theme vars — inline code and pre blocks
-   render with a hard-coded color that's invisible in dark mode.
-   These rules force everything to resolve through our CSS vars so
-   light + dark palettes both look right. */
+h1, h2, h3, h4, h5, h6, button, [role="heading"] {
+  font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+}
 
+/* ─── Prose overrides (unchanged from pre-migration) ─────────────────────────
+   The @tailwindcss/typography plugin's default colours ignore our vars;
+   these force inline code / pre blocks / body to resolve through our CSS
+   vars so light + dark palettes both look right. */
 .prose {
   color: var(--color-foreground);
   --tw-prose-body: var(--color-foreground);
   --tw-prose-headings: var(--color-foreground);
-  --tw-prose-links: oklch(0.5 0.2 260);
+  --tw-prose-links: var(--accent);
   --tw-prose-bold: var(--color-foreground);
   --tw-prose-counters: var(--color-muted-foreground);
   --tw-prose-bullets: var(--color-muted-foreground);
@@ -59,7 +107,6 @@ html, body {
   --tw-prose-td-borders: var(--color-border);
 }
 
-/* Inline code — highly visible in both modes. */
 .prose :where(code):not(:where([class~="not-prose"] *, pre *)) {
   background-color: var(--color-muted);
   color: var(--color-foreground);
@@ -69,13 +116,11 @@ html, body {
   font-size: 0.9em;
 }
 
-/* Strip the backtick quotes the plugin injects around inline code. */
 .prose :where(code):not(:where([class~="not-prose"] *))::before,
 .prose :where(code):not(:where([class~="not-prose"] *))::after {
   content: "";
 }
 
-/* Code blocks — distinct surface, not the body color. */
 .prose :where(pre):not(:where([class~="not-prose"] *)) {
   background-color: var(--color-muted);
   color: var(--color-foreground);
