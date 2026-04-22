@@ -56,3 +56,6 @@ Thumbs.db
 /*.png
 /*.jpg
 /*.jpeg
+
+# Claude Code local tooling state (per-user)
+/.claude/
