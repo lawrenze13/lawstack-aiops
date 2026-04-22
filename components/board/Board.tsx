@@ -231,6 +231,7 @@ function LaneColumn({
 
 function DraggableCard({ task }: { task: Task }) {
   const router = useRouter();
+  const [navigating, startNav] = useTransition();
   const { ref, isDragging } = useDraggable({
     id: task.id,
     type: "item",
@@ -244,14 +245,24 @@ function DraggableCard({ task }: { task: Task }) {
   // click fires at the end of a successful drag.
   const downRef = useRef<{ x: number; y: number; t: number } | null>(null);
 
+  const navigate = () => {
+    // useTransition lets us show a pending state while Next.js is
+    // server-rendering the destination page. `navigating` stays true
+    // until the new route's render completes (or the loading.tsx
+    // skeleton takes over).
+    startNav(() => router.push(`/cards/${task.id}`));
+  };
+
   return (
     <div
       ref={ref}
       data-task-id={task.id}
-      className={`rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] p-3 shadow-sm transition-shadow select-none ${
+      className={`relative rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] p-3 shadow-sm transition-shadow select-none ${
         isDragging
           ? "opacity-40 ring-2 ring-blue-500/60 shadow-lg cursor-grabbing"
-          : "cursor-grab hover:border-blue-500/30"
+          : navigating
+            ? "cursor-progress opacity-80"
+            : "cursor-grab hover:border-blue-500/30"
       }`}
       onPointerDown={(e) => {
         downRef.current = { x: e.clientX, y: e.clientY, t: Date.now() };
@@ -259,16 +270,33 @@ function DraggableCard({ task }: { task: Task }) {
       onPointerUp={(e) => {
         const d = downRef.current;
         downRef.current = null;
-        if (!d || isDragging) return;
+        if (!d || isDragging || navigating) return;
         const dx = Math.abs(e.clientX - d.x);
         const dy = Math.abs(e.clientY - d.y);
         const dt = Date.now() - d.t;
         // Treat as click: movement < 5px AND duration < 500ms.
         if (dx < 5 && dy < 5 && dt < 500) {
-          router.push(`/cards/${task.id}`);
+          navigate();
         }
       }}
     >
+      {/* Loading overlay while navigating — accent-green spinner matches
+          the "signal room" aesthetic. Pointer-events-none so the overlay
+          doesn't eat subsequent clicks. */}
+      {navigating ? (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-[color:var(--surface)]/70">
+          <svg
+            className="h-5 w-5 animate-spin text-[color:var(--accent)]"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            aria-hidden
+          >
+            <path d="M21 12a9 9 0 11-6.22-8.56" />
+          </svg>
+        </div>
+      ) : null}
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-mono text-[color:var(--muted)]">
           {task.jiraKey}
