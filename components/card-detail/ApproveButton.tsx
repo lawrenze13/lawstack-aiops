@@ -116,7 +116,7 @@ export function ApproveButton({ taskId, prRecord, gate, canControl }: Props) {
         {pending ? "Approving…" : "✓ Approve & PR"}
       </Button>
       {gateErrors.length > 0 ? (
-        <span className="text-[10px] text-[color:var(--color-muted-foreground)]">
+        <span className="text-[10px] text-[color:var(--muted)]">
           {gateErrors.join(" · ")}
         </span>
       ) : null}

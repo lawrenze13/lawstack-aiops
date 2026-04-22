@@ -39,11 +39,11 @@ export function RunSidebar({
   agents,
 }: Props) {
   return (
-    <div className="flex-1 overflow-y-auto rounded-lg border border-[color:var(--color-border)] p-3">
+    <div className="flex-1 overflow-y-auto rounded-lg border border-[color:var(--border)] p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold">Runs</h2>
-          <span className="text-[10px] text-[color:var(--color-muted-foreground)]">
+          <span className="text-[10px] text-[color:var(--muted)]">
             {runs.length}
           </span>
         </div>
@@ -51,7 +51,7 @@ export function RunSidebar({
       </div>
 
       {runs.length === 0 ? (
-        <p className="text-xs text-[color:var(--color-muted-foreground)]">
+        <p className="text-xs text-[color:var(--muted)]">
           No runs yet. Click a button above to start one.
         </p>
       ) : (
@@ -67,8 +67,8 @@ export function RunSidebar({
                 }}
                 className={`block rounded border-l-2 border px-2 py-1.5 text-xs transition-colors ${
                   currentRunId === r.id
-                    ? "border-l-[var(--accent)] border-y-[color:var(--color-border)] border-r-[color:var(--color-border)] bg-[color:var(--color-muted)]/40"
-                    : "border-l-transparent border-y-[color:var(--color-border)] border-r-[color:var(--color-border)] hover:border-l-[var(--accent)]/50 hover:bg-[color:var(--color-muted)]/20"
+                    ? "border-l-[var(--accent)] border-y-[color:var(--border)] border-r-[color:var(--border)] bg-[color:var(--surface-secondary)]/40"
+                    : "border-l-transparent border-y-[color:var(--border)] border-r-[color:var(--border)] hover:border-l-[var(--accent)]/50 hover:bg-[color:var(--surface-secondary)]/20"
                 }`}
               >
                 <div className="flex items-center justify-between">
@@ -77,7 +77,7 @@ export function RunSidebar({
                   </span>
                   <StatusBadge status={r.status} />
                 </div>
-                <div className="text-[10px] text-[color:var(--color-muted-foreground)]">
+                <div className="text-[10px] text-[color:var(--muted)]">
                   {r.agentId} · {r.numTurns} turn{r.numTurns === 1 ? "" : "s"} · $
                   {r.costUsd.toFixed(4)}
                 </div>

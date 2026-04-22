@@ -70,8 +70,8 @@ export function RunStarter({ taskId, options }: Props) {
       </div>
 
       {showSingle ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed border-[color:var(--color-border)] bg-[color:var(--color-muted)]/30 px-3 py-2">
-          <span className="text-xs text-[color:var(--color-muted-foreground)]">
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed border-[color:var(--border)] bg-[color:var(--surface-secondary)]/30 px-3 py-2">
+          <span className="text-xs text-[color:var(--muted)]">
             Single stage (no auto-advance to next lane):
           </span>
           {options.map((o) => (

@@ -118,7 +118,7 @@ export function NewTaskDialog({ onCreated }: Props) {
                 <ModalHeading>New task from Jira</ModalHeading>
               </ModalHeader>
               <ModalBody>
-                <p className="text-xs text-[color:var(--color-muted-foreground)]">
+                <p className="text-xs text-[color:var(--muted)]">
                   Search by ticket key (e.g. <span className="font-mono">MP-1050</span>) or summary
                   text.
                 </p>
@@ -164,7 +164,7 @@ export function NewTaskDialog({ onCreated }: Props) {
                         isDisabled={isCreating}
                         className="justify-start gap-3 text-left"
                       >
-                        <span className="font-mono text-xs text-[color:var(--color-muted-foreground)]">
+                        <span className="font-mono text-xs text-[color:var(--muted)]">
                           {r.key}
                         </span>
                         <span className="flex-1">{r.fields.summary}</span>
@@ -172,7 +172,7 @@ export function NewTaskDialog({ onCreated }: Props) {
                     </li>
                   ))}
                   {!isSearching && results.length === 0 && query ? (
-                    <li className="px-3 py-2 text-xs text-[color:var(--color-muted-foreground)]">
+                    <li className="px-3 py-2 text-xs text-[color:var(--muted)]">
                       No results.
                     </li>
                   ) : null}

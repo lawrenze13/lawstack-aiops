@@ -97,21 +97,21 @@ export function ChangesViewer({ taskId }: Props) {
   }
   if (!data) {
     return (
-      <div className="flex h-full items-center justify-center p-6 text-xs text-[color:var(--color-muted-foreground)]">
+      <div className="flex h-full items-center justify-center p-6 text-xs text-[color:var(--muted)]">
         Loading diff…
       </div>
     );
   }
   if (!data.hasWorktree) {
     return (
-      <div className="flex h-full items-center justify-center p-6 text-xs text-[color:var(--color-muted-foreground)]">
+      <div className="flex h-full items-center justify-center p-6 text-xs text-[color:var(--muted)]">
         No worktree for this task — start a run to create one.
       </div>
     );
   }
   if (data.commits.length === 0 && data.diff.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center p-6 text-xs text-[color:var(--color-muted-foreground)]">
+      <div className="flex h-full items-center justify-center p-6 text-xs text-[color:var(--muted)]">
         No commits yet on <span className="mx-1 font-mono">{data.branch}</span> vs main.
       </div>
     );
@@ -128,15 +128,15 @@ export function ChangesViewer({ taskId }: Props) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between gap-3 border-b border-[color:var(--color-border)] px-4 py-2">
+      <div className="flex items-center justify-between gap-3 border-b border-[color:var(--border)] px-4 py-2">
         <div className="flex items-center gap-3 text-xs">
-          <span className="font-mono text-[color:var(--color-muted-foreground)]">
+          <span className="font-mono text-[color:var(--muted)]">
             {data.branch} ↔ main
           </span>
           {data.stat ? (
-            <span className="text-[color:var(--color-muted-foreground)]">{data.stat}</span>
+            <span className="text-[color:var(--muted)]">{data.stat}</span>
           ) : null}
-          <span className="text-[color:var(--color-muted-foreground)]">
+          <span className="text-[color:var(--muted)]">
             {data.commits.length} commit{data.commits.length === 1 ? "" : "s"}
           </span>
           {data.truncated ? (
@@ -156,19 +156,19 @@ export function ChangesViewer({ taskId }: Props) {
 
       <div className="flex min-h-0 flex-1">
         {/* File list sidebar */}
-        <aside className="flex w-64 shrink-0 flex-col border-r border-[color:var(--color-border)] bg-[color:var(--color-muted)]/20">
-          <div className="border-b border-[color:var(--color-border)] p-2">
+        <aside className="flex w-64 shrink-0 flex-col border-r border-[color:var(--border)] bg-[color:var(--surface-secondary)]/20">
+          <div className="border-b border-[color:var(--border)] p-2">
             <input
               type="text"
               placeholder={`Filter ${files.length} file${files.length === 1 ? "" : "s"}…`}
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              className="w-full rounded border border-[color:var(--color-border)] bg-[color:var(--color-card)] px-2 py-1 text-xs placeholder:text-[color:var(--color-muted-foreground)]"
+              className="w-full rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1 text-xs placeholder:text-[color:var(--muted)]"
             />
           </div>
           <ul className="flex-1 overflow-y-auto">
             {filteredFiles.length === 0 ? (
-              <li className="px-3 py-2 text-xs text-[color:var(--color-muted-foreground)]">
+              <li className="px-3 py-2 text-xs text-[color:var(--muted)]">
                 No files match.
               </li>
             ) : (
@@ -177,7 +177,7 @@ export function ChangesViewer({ taskId }: Props) {
                   <button
                     type="button"
                     onClick={() => scrollToFile(file.id)}
-                    className="flex w-full items-start gap-2 border-b border-[color:var(--color-border)] px-3 py-1.5 text-left hover:bg-[color:var(--color-muted)]/60"
+                    className="flex w-full items-start gap-2 border-b border-[color:var(--border)] px-3 py-1.5 text-left hover:bg-[color:var(--surface-secondary)]/60"
                   >
                     <StatusDot status={file.status} />
                     <span className="min-w-0 flex-1">
@@ -185,7 +185,7 @@ export function ChangesViewer({ taskId }: Props) {
                         {file.basename}
                       </span>
                       {file.dir ? (
-                        <span className="block truncate font-mono text-[10px] text-[color:var(--color-muted-foreground)]">
+                        <span className="block truncate font-mono text-[10px] text-[color:var(--muted)]">
                           {file.dir}/
                         </span>
                       ) : null}
@@ -209,18 +209,18 @@ export function ChangesViewer({ taskId }: Props) {
         {/* Diff pane */}
         <div
           ref={diffPaneRef}
-          className="flex-1 overflow-y-auto bg-[color:var(--color-background)]"
+          className="flex-1 overflow-y-auto bg-[color:var(--background)]"
         >
           <div className="mx-auto max-w-6xl px-4 py-4">
             {data.commits.length > 0 ? (
-              <details className="mb-3 rounded border border-[color:var(--color-border)] bg-[color:var(--color-muted)]/40">
+              <details className="mb-3 rounded border border-[color:var(--border)] bg-[color:var(--surface-secondary)]/40">
                 <summary className="cursor-pointer px-3 py-1.5 text-xs font-semibold">
                   Commits ({data.commits.length})
                 </summary>
-                <ul className="border-t border-[color:var(--color-border)] p-2">
+                <ul className="border-t border-[color:var(--border)] p-2">
                   {data.commits.map((c, i) => (
                     <li key={c.sha + i} className="flex gap-3 py-0.5 text-xs">
-                      <code className="text-[color:var(--color-muted-foreground)]">{c.sha}</code>
+                      <code className="text-[color:var(--muted)]">{c.sha}</code>
                       <span>{c.subject}</span>
                     </li>
                   ))}
@@ -265,7 +265,7 @@ function DiffBody({ files, lines }: { files: DiffFile[]; lines: string[] }) {
     // Fallback: render the whole thing as one block when parsing found no
     // file boundaries (shouldn't happen for a normal diff).
     return (
-      <pre className="overflow-x-auto rounded border border-[color:var(--color-border)] bg-[color:var(--color-card)] p-3 font-mono text-[11px] leading-snug">
+      <pre className="overflow-x-auto rounded border border-[color:var(--border)] bg-[color:var(--surface)] p-3 font-mono text-[11px] leading-snug">
         {lines.map((line, i) => {
           const cls = classifyDiffLine(line);
           return (
@@ -284,9 +284,9 @@ function DiffBody({ files, lines }: { files: DiffFile[]; lines: string[] }) {
         <section
           key={file.id}
           id={file.id}
-          className="scroll-mt-4 overflow-hidden rounded border border-[color:var(--color-border)] bg-[color:var(--color-card)]"
+          className="scroll-mt-4 overflow-hidden rounded border border-[color:var(--border)] bg-[color:var(--surface)]"
         >
-          <header className="flex items-center gap-2 border-b border-[color:var(--color-border)] bg-[color:var(--color-muted)]/40 px-3 py-1.5">
+          <header className="flex items-center gap-2 border-b border-[color:var(--border)] bg-[color:var(--surface-secondary)]/40 px-3 py-1.5">
             <StatusDot status={file.status} />
             <span className="flex-1 truncate font-mono text-[11px] font-medium">
               {file.path}
@@ -319,13 +319,13 @@ function DiffBody({ files, lines }: { files: DiffFile[]; lines: string[] }) {
 
 function classifyDiffLine(line: string): string {
   if (line.startsWith("+++") || line.startsWith("---")) {
-    return "text-[color:var(--color-muted-foreground)] font-semibold";
+    return "text-[color:var(--muted)] font-semibold";
   }
   if (line.startsWith("@@")) {
     return "text-blue-700 bg-blue-500/5";
   }
   if (line.startsWith("diff ") || line.startsWith("index ") || line.startsWith("Binary files")) {
-    return "text-[color:var(--color-muted-foreground)] font-semibold";
+    return "text-[color:var(--muted)] font-semibold";
   }
   if (line.startsWith("+")) {
     return "text-green-700 bg-green-500/5";
@@ -333,7 +333,7 @@ function classifyDiffLine(line: string): string {
   if (line.startsWith("-")) {
     return "text-red-700 bg-red-500/5";
   }
-  return "text-[color:var(--color-foreground)]";
+  return "text-[color:var(--foreground)]";
 }
 
 // ─── Diff parser ─────────────────────────────────────────────────────────

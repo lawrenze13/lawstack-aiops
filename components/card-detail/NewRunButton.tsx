@@ -82,15 +82,15 @@ export function NewRunButton({ taskId, runActive, agents }: Props) {
       </Button>
 
       {open ? (
-        <div className="mt-2 rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-muted)]/30 p-2">
+        <div className="mt-2 rounded-md border border-[color:var(--border)] bg-[color:var(--surface-secondary)]/30 p-2">
           <label className="mb-2 flex flex-col gap-1 text-[11px]">
-            <span className="font-medium text-[color:var(--color-muted-foreground)]">
+            <span className="font-medium text-[color:var(--muted)]">
               Agent
             </span>
             <select
               value={agentId}
               onChange={(e) => pickAgent(e.target.value)}
-              className="rounded border border-[color:var(--color-border)] bg-[color:var(--color-card)] px-2 py-1 text-xs"
+              className="rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1 text-xs"
             >
               {agents.map((a) => (
                 <option key={a.id} value={a.id}>
@@ -101,13 +101,13 @@ export function NewRunButton({ taskId, runActive, agents }: Props) {
           </label>
 
           <label className="mb-2 flex flex-col gap-1 text-[11px]">
-            <span className="font-medium text-[color:var(--color-muted-foreground)]">
+            <span className="font-medium text-[color:var(--muted)]">
               Lane
             </span>
             <select
               value={lane}
               onChange={(e) => setLane(e.target.value as typeof lane)}
-              className="rounded border border-[color:var(--color-border)] bg-[color:var(--color-card)] px-2 py-1 text-xs"
+              className="rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1 text-xs"
             >
               {(selected?.lanes ?? []).map((l) => (
                 <option key={l} value={l}>
@@ -118,7 +118,7 @@ export function NewRunButton({ taskId, runActive, agents }: Props) {
           </label>
 
           <label className="mb-2 flex flex-col gap-1 text-[11px]">
-            <span className="font-medium text-[color:var(--color-muted-foreground)]">
+            <span className="font-medium text-[color:var(--muted)]">
               Extra prompt (optional)
             </span>
             <TextArea
@@ -129,7 +129,7 @@ export function NewRunButton({ taskId, runActive, agents }: Props) {
               placeholder={"e.g. “focus on the migration files only” or “skip the styling pass”"}
               className="text-xs"
             />
-            <span className="text-[10px] text-[color:var(--color-muted-foreground)]">
+            <span className="text-[10px] text-[color:var(--muted)]">
               Appended to the agent's built-in prompt. Leave empty for default behaviour.
             </span>
           </label>

@@ -20,7 +20,7 @@ export default async function SignInPage({ searchParams }: Props) {
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-6 p-8">
       <header>
         <h1 className="text-2xl font-semibold">multiportal-ai-ops</h1>
-        <p className="text-sm text-[color:var(--color-muted-foreground)]">
+        <p className="text-sm text-[color:var(--muted)]">
           Sign in with your <span className="font-mono">{domains}</span> Google account.
         </p>
       </header>
@@ -39,7 +39,7 @@ export default async function SignInPage({ searchParams }: Props) {
       >
         <button
           type="submit"
-          className="w-full rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-card)] px-4 py-2 text-sm font-medium hover:bg-[color:var(--color-muted)]"
+          className="w-full rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-sm font-medium hover:bg-[color:var(--surface-secondary)]"
         >
           Continue with Google
         </button>

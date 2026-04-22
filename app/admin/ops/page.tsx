@@ -127,12 +127,12 @@ export default async function AdminOpsPage() {
 
   return (
     <main className="flex min-h-screen flex-col">
-      <header className="border-b border-[color:var(--color-border)] px-6 py-3">
+      <header className="border-b border-[color:var(--border)] px-6 py-3">
         <div className="flex items-center justify-between">
           <div>
             <Link
               href="/"
-              className="text-xs text-[color:var(--color-muted-foreground)] hover:underline"
+              className="text-xs text-[color:var(--muted)] hover:underline"
             >
               ← Board
             </Link>
@@ -169,7 +169,7 @@ export default async function AdminOpsPage() {
       <section className="grid grid-cols-12 gap-4 p-4">
         <Panel title={`Stuck runs (${stuckRuns.length})`} className="col-span-12">
           {stuckRuns.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-[color:var(--color-muted-foreground)]">
+            <p className="px-3 py-2 text-xs text-[color:var(--muted)]">
               None. Runs with <code>status=running</code> &amp; no heartbeat in{" "}
               {STUCK_HEARTBEAT_MS / 1000}s appear here.
             </p>
@@ -201,7 +201,7 @@ export default async function AdminOpsPage() {
 
         <Panel title={`Failed runs (last 24h · ${recentFailed.length})`} className="col-span-7">
           {recentFailed.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-[color:var(--color-muted-foreground)]">
+            <p className="px-3 py-2 text-xs text-[color:var(--muted)]">
               None.
             </p>
           ) : (
@@ -251,7 +251,7 @@ export default async function AdminOpsPage() {
               <span key="a" className="font-mono text-[11px]">
                 {a.action}
               </span>,
-              <span key="u" className="font-mono text-[10px] text-[color:var(--color-muted-foreground)]">
+              <span key="u" className="font-mono text-[10px] text-[color:var(--muted)]">
                 {a.actorUserId ? a.actorUserId.slice(0, 8) : "—"}
               </span>,
               a.taskId ? (
@@ -266,7 +266,7 @@ export default async function AdminOpsPage() {
                 "—"
               ),
               a.runId ? (
-                <span key="r" className="font-mono text-[10px] text-[color:var(--color-muted-foreground)]">
+                <span key="r" className="font-mono text-[10px] text-[color:var(--muted)]">
                   {a.runId.slice(0, 8)}
                 </span>
               ) : (
@@ -274,7 +274,7 @@ export default async function AdminOpsPage() {
               ),
               <code
                 key="p"
-                className="block max-w-md truncate text-[10px] text-[color:var(--color-muted-foreground)]"
+                className="block max-w-md truncate text-[10px] text-[color:var(--muted)]"
                 title={a.payloadJson ?? ""}
               >
                 {truncate(a.payloadJson ?? "", 120)}
@@ -303,10 +303,10 @@ function Stat({
   const color =
     tone === "warn"
       ? "text-amber-700"
-      : "text-[color:var(--color-foreground)]";
+      : "text-[color:var(--foreground)]";
   return (
     <div className="flex flex-col items-end" title={title}>
-      <span className="text-[10px] uppercase tracking-wider text-[color:var(--color-muted-foreground)]">
+      <span className="text-[10px] uppercase tracking-wider text-[color:var(--muted)]">
         {label}
       </span>
       <span className={`font-mono text-sm font-semibold ${color}`}>{value}</span>
@@ -324,8 +324,8 @@ function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <div className={`rounded-lg border border-[color:var(--color-border)] ${className ?? ""}`}>
-      <div className="border-b border-[color:var(--color-border)] px-3 py-1.5 text-xs font-semibold">
+    <div className={`rounded-lg border border-[color:var(--border)] ${className ?? ""}`}>
+      <div className="border-b border-[color:var(--border)] px-3 py-1.5 text-xs font-semibold">
         {title}
       </div>
       <div className="max-h-[60vh] overflow-auto">{children}</div>
@@ -342,7 +342,7 @@ function Table({
 }) {
   return (
     <table className="w-full text-xs">
-      <thead className="sticky top-0 bg-[color:var(--color-muted)]/60 text-[10px] uppercase tracking-wider text-[color:var(--color-muted-foreground)]">
+      <thead className="sticky top-0 bg-[color:var(--surface-secondary)]/60 text-[10px] uppercase tracking-wider text-[color:var(--muted)]">
         <tr>
           {headers.map((h, i) => (
             <th key={i} className="px-3 py-1.5 text-left font-medium">
@@ -353,7 +353,7 @@ function Table({
       </thead>
       <tbody>
         {rows.map((row, ri) => (
-          <tr key={ri} className="border-t border-[color:var(--color-border)]">
+          <tr key={ri} className="border-t border-[color:var(--border)]">
             {row.map((cell, ci) => (
               <td key={ci} className="px-3 py-1.5 align-top">
                 {cell}

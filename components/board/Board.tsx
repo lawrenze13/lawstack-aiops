@@ -83,7 +83,7 @@ export function Board({ initialTasks, scope, isAdmin }: Props) {
 
   return (
     <div className="flex h-screen flex-col">
-      <header className="flex items-center justify-between border-b border-[color:var(--color-border)] px-6 py-3">
+      <header className="flex items-center justify-between border-b border-[color:var(--border)] px-6 py-3">
         <div className="flex items-center gap-4">
           <h1 className="text-lg font-semibold">multiportal-ai-ops</h1>
           <nav className="flex gap-1 text-sm">
@@ -159,7 +159,7 @@ export function Board({ initialTasks, scope, isAdmin }: Props) {
                   <DraggableCard key={t.id} task={t} />
                 ))
               ) : (
-                <p className="px-1 py-3 text-xs text-[color:var(--color-muted-foreground)]">
+                <p className="px-1 py-3 text-xs text-[color:var(--muted)]">
                   No cards
                 </p>
               )}
@@ -188,8 +188,8 @@ function NavLink({
   const base =
     "inline-flex items-center justify-center rounded-md px-3 py-1 text-sm font-medium transition-colors";
   const tone = active
-    ? "bg-[color:var(--color-muted)] text-[color:var(--color-foreground)]"
-    : "text-[color:var(--color-muted-foreground)] hover:bg-[color:var(--color-muted)]/60 hover:text-[color:var(--color-foreground)]";
+    ? "bg-[color:var(--surface-secondary)] text-[color:var(--foreground)]"
+    : "text-[color:var(--muted)] hover:bg-[color:var(--surface-secondary)]/60 hover:text-[color:var(--foreground)]";
   return (
     <a href={href} className={`${base} ${tone}`}>
       {children}
@@ -211,13 +211,13 @@ function LaneColumn({
   const { ref, isDropTarget } = useDroppable({ id, accept: "item" });
   return (
     <div
-      className={`flex w-72 shrink-0 flex-col rounded-lg border bg-[color:var(--color-muted)]/40 transition-colors ${
-        isDropTarget ? "border-blue-500/60 bg-blue-500/5" : "border-[color:var(--color-border)]"
+      className={`flex w-72 shrink-0 flex-col rounded-lg border bg-[color:var(--surface-secondary)]/40 transition-colors ${
+        isDropTarget ? "border-blue-500/60 bg-blue-500/5" : "border-[color:var(--border)]"
       }`}
     >
-      <div className="flex items-center justify-between border-b border-[color:var(--color-border)] px-3 py-2">
+      <div className="flex items-center justify-between border-b border-[color:var(--border)] px-3 py-2">
         <span className="text-sm font-medium">{label}</span>
-        <span className="text-xs text-[color:var(--color-muted-foreground)]">{count}</span>
+        <span className="text-xs text-[color:var(--muted)]">{count}</span>
       </div>
       <div
         ref={ref}
@@ -248,7 +248,7 @@ function DraggableCard({ task }: { task: Task }) {
     <div
       ref={ref}
       data-task-id={task.id}
-      className={`rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-card)] p-3 shadow-sm transition-shadow select-none ${
+      className={`rounded-md border border-[color:var(--border)] bg-[color:var(--surface)] p-3 shadow-sm transition-shadow select-none ${
         isDragging
           ? "opacity-40 ring-2 ring-blue-500/60 shadow-lg cursor-grabbing"
           : "cursor-grab hover:border-blue-500/30"
@@ -270,14 +270,14 @@ function DraggableCard({ task }: { task: Task }) {
       }}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-mono text-[color:var(--color-muted-foreground)]">
+        <span className="text-xs font-mono text-[color:var(--muted)]">
           {task.jiraKey}
         </span>
         <CardStatusBadges task={task} />
       </div>
       <div className="mt-1 text-sm font-medium leading-snug">{task.title}</div>
       {task.costUsd > 0 ? (
-        <div className="mt-1.5 text-[10px] text-[color:var(--color-muted-foreground)]">
+        <div className="mt-1.5 text-[10px] text-[color:var(--muted)]">
           ${task.costUsd.toFixed(4)}
         </div>
       ) : null}

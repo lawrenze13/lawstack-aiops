@@ -497,18 +497,18 @@ export function RunLog({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-[color:var(--color-border)] px-3 py-2 text-xs">
+      <div className="flex items-center justify-between border-b border-[color:var(--border)] px-3 py-2 text-xs">
         <span className="flex items-center gap-2">
           <span
             className={`inline-block h-2 w-2 rounded-full ${dotClass}`}
             title={dotTitle}
           />
           <span className="font-mono">run {runId.slice(0, 8)}</span>
-          <span className="text-[color:var(--color-muted-foreground)]">turn {turnCount}</span>
+          <span className="text-[color:var(--muted)]">turn {turnCount}</span>
           <CostBadge usd={state.costUsd} costState={state.costState} />
         </span>
         <span className="flex items-center gap-2">
-          <span className="rounded bg-[color:var(--color-muted)] px-2 py-0.5 font-medium">
+          <span className="rounded bg-[color:var(--surface-secondary)] px-2 py-0.5 font-medium">
             {displayStatus}
           </span>
           {isRunning && canControl ? (
@@ -531,7 +531,7 @@ export function RunLog({
       ) : null}
 
       {!isRunning && initialStatus !== "running" ? (
-        <div className="border-b border-[color:var(--color-border)] bg-[color:var(--color-muted)]/40 px-3 py-1 text-xs text-[color:var(--color-muted-foreground)]">
+        <div className="border-b border-[color:var(--border)] bg-[color:var(--surface-secondary)]/40 px-3 py-1 text-xs text-[color:var(--muted)]">
           📼 This run finished. The events below are a log of what happened — no new events are being generated.
         </div>
       ) : state.phase === "replay" ? (
@@ -578,7 +578,7 @@ export function RunLog({
 
       <div ref={scroller} className="flex-1 overflow-y-auto px-3 py-3 text-xs leading-relaxed">
         {state.events.length === 0 ? (
-          <p className="text-[color:var(--color-muted-foreground)]">Waiting for events…</p>
+          <p className="text-[color:var(--muted)]">Waiting for events…</p>
         ) : (
           <EventStream
             events={state.events}
@@ -588,7 +588,7 @@ export function RunLog({
           />
         )}
         {state.ended ? (
-          <div className="mt-4 border-t border-dashed border-[color:var(--color-border)] pt-2 text-[10px] uppercase tracking-wide text-[color:var(--color-muted-foreground)]">
+          <div className="mt-4 border-t border-dashed border-[color:var(--border)] pt-2 text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
             — end of log — {state.ended.status}
             {state.ended.reason ? ` (${state.ended.reason})` : ""}
           </div>
@@ -656,10 +656,10 @@ function LiveStatusLine({
   const tokens = formatTokens(outputTokens);
 
   return (
-    <div className="border-b border-[color:var(--color-border)] bg-[color:var(--color-muted)]/20 px-3 py-1.5 font-mono text-[11px] text-[color:var(--color-foreground)]">
+    <div className="border-b border-[color:var(--border)] bg-[color:var(--surface-secondary)]/20 px-3 py-1.5 font-mono text-[11px] text-[color:var(--foreground)]">
       <span className="text-blue-600">{glyph}</span>{" "}
       <span className="font-medium">{word}…</span>{" "}
-      <span className="text-[color:var(--color-muted-foreground)]">
+      <span className="text-[color:var(--muted)]">
         ({elapsed} · ↓ {tokens} tokens · ${costUsd.toFixed(4)})
       </span>
     </div>
@@ -765,18 +765,18 @@ function RunHeader({
           : "bg-amber-500/15 text-amber-800 border-amber-500/40";
   return (
     <div
-      className={`mb-2 mt-4 flex items-center gap-2 border-t pt-2 first:mt-0 first:border-t-0 first:pt-0 ${isCurrent ? "border-blue-500/30" : "border-[color:var(--color-border)]"}`}
+      className={`mb-2 mt-4 flex items-center gap-2 border-t pt-2 first:mt-0 first:border-t-0 first:pt-0 ${isCurrent ? "border-blue-500/30" : "border-[color:var(--border)]"}`}
     >
-      <span className="text-[10px] font-semibold uppercase tracking-wider text-[color:var(--color-muted-foreground)]">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-[color:var(--muted)]">
         Run {ordinal} · {meta.lane}
       </span>
-      <span className="font-mono text-[10px] text-[color:var(--color-muted-foreground)]">
+      <span className="font-mono text-[10px] text-[color:var(--muted)]">
         {meta.agentId}
       </span>
       <span className={`rounded border px-1.5 py-0.5 text-[9px] uppercase ${statusColor}`}>
         {meta.status}
       </span>
-      <span className="text-[10px] text-[color:var(--color-muted-foreground)]">
+      <span className="text-[10px] text-[color:var(--muted)]">
         {meta.numTurns} turn{meta.numTurns === 1 ? "" : "s"} · ${meta.costUsd.toFixed(4)}
       </span>
       {isCurrent ? (
@@ -808,15 +808,15 @@ function AssistantTurn({
   }
 
   return (
-    <div className="mb-4 border-l-2 border-[color:var(--color-border)] pl-3">
-      <div className="mb-1 text-[10px] uppercase tracking-wide text-[color:var(--color-muted-foreground)]">
+    <div className="mb-4 border-l-2 border-[color:var(--border)] pl-3">
+      <div className="mb-1 text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
         ▸ assistant · turn {turn}
       </div>
 
       {texts.map((t, i) => (
         <div
           key={i}
-          className="prose prose-sm mb-2 max-w-none text-[color:var(--color-foreground)] prose-pre:my-1 prose-pre:rounded prose-pre:bg-[color:var(--color-muted)] prose-pre:p-2 prose-pre:text-xs prose-code:text-xs prose-code:before:content-none prose-code:after:content-none"
+          className="prose prose-sm mb-2 max-w-none text-[color:var(--foreground)] prose-pre:my-1 prose-pre:rounded prose-pre:bg-[color:var(--surface-secondary)] prose-pre:p-2 prose-pre:text-xs prose-code:text-xs prose-code:before:content-none prose-code:after:content-none"
         >
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{t}</ReactMarkdown>
         </div>
@@ -855,17 +855,17 @@ function ToolCall({
         <span className="text-xs">{icon}</span>
         <span className="font-mono text-[11px] font-medium">{name}</span>
         {summary ? (
-          <span className="font-mono text-[11px] text-[color:var(--color-muted-foreground)]">
+          <span className="font-mono text-[11px] text-[color:var(--muted)]">
             {summary}
           </span>
         ) : null}
         {hasError ? <span className="text-[11px] text-red-700">· error</span> : null}
         {!result ? (
-          <span className="ml-auto animate-pulse text-[10px] text-[color:var(--color-muted-foreground)]">
+          <span className="ml-auto animate-pulse text-[10px] text-[color:var(--muted)]">
             running…
           </span>
         ) : (
-          <span className="ml-auto text-[10px] text-[color:var(--color-muted-foreground)] group-open:hidden">
+          <span className="ml-auto text-[10px] text-[color:var(--muted)] group-open:hidden">
             expand
           </span>
         )}
@@ -874,17 +874,17 @@ function ToolCall({
       <div className="ml-4 mt-1 space-y-1">
         {input && typeof input === "object" && !isEmptyObject(input) ? (
           <div>
-            <div className="text-[10px] uppercase tracking-wide text-[color:var(--color-muted-foreground)]">
+            <div className="text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
               input
             </div>
-            <pre className="mt-0.5 max-h-48 overflow-auto rounded bg-[color:var(--color-muted)]/60 p-2 font-mono text-[11px]">
+            <pre className="mt-0.5 max-h-48 overflow-auto rounded bg-[color:var(--surface-secondary)]/60 p-2 font-mono text-[11px]">
               {JSON.stringify(input, null, 2)}
             </pre>
           </div>
         ) : null}
         {result ? (
           <div>
-            <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-[color:var(--color-muted-foreground)]">
+            <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-[color:var(--muted)]">
               <span>result</span>
               {result.isError ? <span className="text-red-700">error</span> : null}
             </div>
@@ -892,7 +892,7 @@ function ToolCall({
               className={`mt-0.5 max-h-64 overflow-auto rounded p-2 font-mono text-[11px] ${
                 result.isError
                   ? "bg-red-500/10 text-red-900"
-                  : "bg-[color:var(--color-muted)]/60"
+                  : "bg-[color:var(--surface-secondary)]/60"
               }`}
             >
               {truncate(result.content, 4000)}
@@ -908,7 +908,7 @@ function SystemLine({ payload }: { payload: unknown }) {
   const p = payload as { subtype?: string; model?: string };
   if (p.subtype !== "init") return null;
   return (
-    <div className="mb-2 font-mono text-[11px] text-[color:var(--color-muted-foreground)]">
+    <div className="mb-2 font-mono text-[11px] text-[color:var(--muted)]">
       ⚙ session started {p.model ? `· ${p.model}` : ""}
     </div>
   );
@@ -944,7 +944,7 @@ function ServerLine({ payload }: { payload: unknown }) {
         <div className="mb-1 text-[10px] uppercase tracking-wide text-blue-700">
           👤 you
         </div>
-        <div className="prose prose-sm max-w-none text-[color:var(--color-foreground)]">
+        <div className="prose prose-sm max-w-none text-[color:var(--foreground)]">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{p.text}</ReactMarkdown>
         </div>
       </div>
@@ -977,7 +977,7 @@ function ServerLine({ payload }: { payload: unknown }) {
   })();
   if (!content) return null;
   return (
-    <div className="mb-1 font-mono text-[11px] text-[color:var(--color-muted-foreground)]">
+    <div className="mb-1 font-mono text-[11px] text-[color:var(--muted)]">
       {content}
     </div>
   );
@@ -997,7 +997,7 @@ function CostBadge({
       ? "bg-red-500/15 text-red-700 border-red-500/40"
       : costState === "warn"
         ? "bg-amber-500/15 text-amber-800 border-amber-500/40"
-        : "bg-[color:var(--color-muted)] text-[color:var(--color-muted-foreground)] border-[color:var(--color-border)]";
+        : "bg-[color:var(--surface-secondary)] text-[color:var(--muted)] border-[color:var(--border)]";
   return (
     <span
       className={`rounded border px-1.5 py-0.5 font-mono text-[10px] ${cls}`}
@@ -1055,7 +1055,7 @@ function toolColor(name: string): string {
     case "TodoWrite":
       return "border-emerald-500/30 bg-emerald-500/5";
     default:
-      return "border-[color:var(--color-border)] bg-[color:var(--color-muted)]/40";
+      return "border-[color:var(--border)] bg-[color:var(--surface-secondary)]/40";
   }
 }
 

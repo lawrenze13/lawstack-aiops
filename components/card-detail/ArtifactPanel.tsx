@@ -35,7 +35,7 @@ export function ArtifactPanel({ artifacts }: Props) {
 
   if (artifacts.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-[color:var(--color-border)] p-3 text-xs text-[color:var(--color-muted-foreground)]">
+      <div className="rounded-lg border border-dashed border-[color:var(--border)] p-3 text-xs text-[color:var(--muted)]">
         No artifacts produced yet. Run Brainstorm and Plan, then Approve & PR to ship.
       </div>
     );
@@ -48,7 +48,7 @@ export function ArtifactPanel({ artifacts }: Props) {
   };
 
   return (
-    <div className="rounded-lg border border-[color:var(--color-border)] p-3">
+    <div className="rounded-lg border border-[color:var(--border)] p-3">
       <h2 className="mb-2 text-sm font-semibold">Artifacts</h2>
       <ul className="space-y-1.5">
         {artifacts.map((a) => {
@@ -61,12 +61,12 @@ export function ArtifactPanel({ artifacts }: Props) {
                 className={`flex w-full items-center justify-between rounded border px-2.5 py-1.5 text-left text-xs transition ${
                   isActive
                     ? "border-blue-500/40 bg-blue-500/5"
-                    : "border-[color:var(--color-border)] hover:border-blue-500/30 hover:bg-[color:var(--color-muted)]/40"
+                    : "border-[color:var(--border)] hover:border-blue-500/30 hover:bg-[color:var(--surface-secondary)]/40"
                 }`}
               >
                 <span className="flex items-center gap-2">
                   <span className="font-medium">{KIND_LABEL[a.kind]}</span>
-                  <span className="font-mono text-[10px] text-[color:var(--color-muted-foreground)]">
+                  <span className="font-mono text-[10px] text-[color:var(--muted)]">
                     {a.filename}
                   </span>
                 </span>
@@ -76,7 +76,7 @@ export function ArtifactPanel({ artifacts }: Props) {
                       stale
                     </Chip>
                   ) : null}
-                  <span className="text-[10px] text-[color:var(--color-muted-foreground)]">
+                  <span className="text-[10px] text-[color:var(--muted)]">
                     {isActive ? "open" : "view →"}
                   </span>
                 </span>

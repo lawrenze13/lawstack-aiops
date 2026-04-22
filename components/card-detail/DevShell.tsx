@@ -101,7 +101,7 @@ export function DevShell({ taskId, canControl, cwd }: Props) {
 
   if (!canControl) {
     return (
-      <div className="flex h-full items-center justify-center p-6 text-xs text-[color:var(--color-muted-foreground)]">
+      <div className="flex h-full items-center justify-center p-6 text-xs text-[color:var(--muted)]">
         Dev shell is owner/admin only.
       </div>
     );

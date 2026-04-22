@@ -226,23 +226,23 @@ export default async function CardDetailPage({ params }: Props) {
 
   return (
     <main className="flex h-screen flex-col">
-      <header className="flex items-center justify-between border-b border-[color:var(--color-border)] px-6 py-3">
+      <header className="flex items-center justify-between border-b border-[color:var(--border)] px-6 py-3">
         <div>
           <Link
             href="/"
-            className="text-xs text-[color:var(--color-muted-foreground)] hover:underline"
+            className="text-xs text-[color:var(--muted)] hover:underline"
           >
             ← Board
           </Link>
           <h1 className="mt-1 text-lg font-semibold">
-            <span className="font-mono text-[color:var(--color-muted-foreground)]">
+            <span className="font-mono text-[color:var(--muted)]">
               {task.jiraKey}
             </span>{" "}
             {task.title}
           </h1>
         </div>
         <div className="flex items-center gap-3 text-xs">
-          <span className="rounded bg-[color:var(--color-muted)] px-2 py-1 font-medium">
+          <span className="rounded bg-[color:var(--surface-secondary)] px-2 py-1 font-medium">
             lane: {task.currentLane}
           </span>
           {reviewVerdict && reviewVerdict !== "READY" ? (
@@ -311,7 +311,7 @@ export default async function CardDetailPage({ params }: Props) {
         />
       ) : null}
 
-      <section className="border-b border-[color:var(--color-border)] px-6 py-3">
+      <section className="border-b border-[color:var(--border)] px-6 py-3">
         <RunStarter taskId={task.id} options={starterOptions} />
       </section>
 
@@ -405,14 +405,14 @@ export default async function CardDetailPage({ params }: Props) {
               shellCwd={env.PREVIEW_DEV_PATH ?? null}
               shellCanControl={canControl}
               logContent={
-                <p className="p-6 text-sm text-[color:var(--color-muted-foreground)]">
+                <p className="p-6 text-sm text-[color:var(--muted)]">
                   No run log yet — but artifacts from a prior session are available in the tabs.
                 </p>
               }
               chatContent={null}
             />
           ) : (
-            <div className="flex h-full items-center justify-center rounded-lg border border-[color:var(--color-border)] p-6 text-sm text-[color:var(--color-muted-foreground)]">
+            <div className="flex h-full items-center justify-center rounded-lg border border-[color:var(--border)] p-6 text-sm text-[color:var(--muted)]">
               No active run for this card. Start one above to see live agent output here.
             </div>
           )}

@@ -134,7 +134,7 @@ function ToastCard({
   return (
     <div
       role="status"
-      className={`pointer-events-auto flex w-80 items-start gap-3 rounded-md border border-l-4 bg-[color:var(--color-card)] px-3 py-2.5 text-xs text-[color:var(--color-foreground)] shadow-xl border-[color:var(--color-border)] ${accent[toast.kind]}`}
+      className={`pointer-events-auto flex w-80 items-start gap-3 rounded-md border border-l-4 bg-[color:var(--surface)] px-3 py-2.5 text-xs text-[color:var(--foreground)] shadow-xl border-[color:var(--border)] ${accent[toast.kind]}`}
     >
       <span className={`mt-0.5 text-sm font-bold ${iconColor[toast.kind]}`}>
         {icon[toast.kind]}
@@ -142,7 +142,7 @@ function ToastCard({
       <div className="flex-1">
         <div className="font-semibold">{toast.title}</div>
         {toast.body ? (
-          <div className="mt-0.5 text-[11px] text-[color:var(--color-muted-foreground)]">
+          <div className="mt-0.5 text-[11px] text-[color:var(--muted)]">
             {toast.body}
           </div>
         ) : null}
@@ -150,7 +150,7 @@ function ToastCard({
       <button
         type="button"
         onClick={onDismiss}
-        className="ml-auto text-[color:var(--color-muted-foreground)] hover:text-[color:var(--color-foreground)]"
+        className="ml-auto text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
         aria-label="dismiss"
       >
         ✕

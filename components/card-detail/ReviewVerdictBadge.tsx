@@ -135,11 +135,11 @@ export function ReviewVerdictBadge({ taskId, initial }: Props) {
             strings as children by default. Safe.
           */}
           {state.blockers ? (
-            <pre className="whitespace-pre-wrap font-mono text-[11px] leading-snug text-[color:var(--color-foreground)]">
+            <pre className="whitespace-pre-wrap font-mono text-[11px] leading-snug text-[color:var(--foreground)]">
               {state.blockers}
             </pre>
           ) : (
-            <p className="text-xs text-[color:var(--color-muted-foreground)]">
+            <p className="text-xs text-[color:var(--muted)]">
               See the PR review for details.
             </p>
           )}

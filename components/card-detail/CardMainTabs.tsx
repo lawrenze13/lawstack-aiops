@@ -108,10 +108,10 @@ export function CardMainTabs({
       : artifacts.find((a) => a.kind === active);
 
   return (
-    <div className="flex h-full flex-col rounded-lg border border-[color:var(--color-border)]">
+    <div className="flex h-full flex-col rounded-lg border border-[color:var(--border)]">
       <div
         key="tabs"
-        className="flex items-center gap-1 border-b border-[color:var(--color-border)] px-2 py-1.5 text-xs"
+        className="flex items-center gap-1 border-b border-[color:var(--border)] px-2 py-1.5 text-xs"
       >
         <TabButton key="log" active={active === "log"} onClick={() => setActive("log")}>
           Run log
