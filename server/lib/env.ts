@@ -1,4 +1,7 @@
-import "server-only";
+// Intentionally NOT importing 'server-only' — server/db/client.ts imports
+// this module, and client.ts is loaded by the standalone `npm run db:migrate`
+// CLI (pure Node, no Next.js server bundle). server-only would throw there.
+// The Next.js bundler still tree-shakes server/* out of client bundles.
 import {
   configSchema,
   getConfig,

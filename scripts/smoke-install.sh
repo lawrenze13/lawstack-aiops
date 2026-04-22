@@ -60,6 +60,11 @@ say "Port:    $PORT"
 
 [[ -f "package.json" ]] || fail "not in repo root: $REPO"
 
+NODE_MAJOR=$(node --version | sed 's/^v//' | cut -d. -f1)
+if [[ "$NODE_MAJOR" -lt 20 ]]; then
+  fail "Node $(node --version) detected; repo requires ≥20 (see .nvmrc). Try: nvm use"
+fi
+
 # ── 2. Fresh DB (in sandbox, so the real data/app.db isn't touched)
 say "Running migrations against fresh SQLite at $DB_PATH"
 DATABASE_URL="$DB_PATH" npm run db:migrate --silent \
@@ -80,9 +85,11 @@ DATABASE_URL="$DB_PATH" \
   > "$SERVER_LOG" 2>&1 &
 PID=$!
 
-# Poll for readiness (max 40s)
-for i in $(seq 1 40); do
-  if curl -fsS "http://localhost:$PORT/api/health" >/dev/null 2>&1; then
+# Poll for readiness (max 90s — first-compile is slow on a cold .next/).
+say "Polling /api/health (cold compile can take ~30s on first boot)"
+for i in $(seq 1 90); do
+  CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$PORT/api/health" 2>/dev/null || echo "")
+  if [[ "$CODE" == "200" ]]; then
     break
   fi
   if ! kill -0 "$PID" 2>/dev/null; then
@@ -90,20 +97,27 @@ for i in $(seq 1 40); do
   fi
   sleep 1
 done
-curl -fsS "http://localhost:$PORT/api/health" >/dev/null \
-  || fail "server did not respond to /api/health within 40s"
+[[ "$CODE" == "200" ]] || fail "/api/health never returned 200 (last: $CODE)"
 
-# ── 4. Setup token should have been printed to stdout
-say "Checking stdout for setup token"
+# ── 4. Kick client.ts load so ensureSetupToken fires, then look for token
+say "Triggering DB-side init via /setup (prompts the setup token banner)"
+curl -s -o /dev/null "http://localhost:$PORT/setup"
+# The banner prints asynchronously from a fire-and-forget; give it a beat.
+for i in $(seq 1 20); do
+  if grep -q "token=" "$SERVER_LOG"; then break; fi
+  sleep 0.5
+done
+
 TOKEN=$(grep -Eo "token=[A-Za-z0-9_-]{16,}" "$SERVER_LOG" | head -1 | cut -d= -f2 || true)
-[[ -n "$TOKEN" ]] || fail "no 'token=...' marker in server log"
+[[ -n "$TOKEN" ]] || fail "no 'token=...' marker in server log after /setup"
 say "Found token: ${TOKEN:0:8}…"
 
-# ── 5. /setup should load without auth when token is present
-say "Hitting /setup?token=…"
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+# ── 5. /setup should load without auth when token is present.
+#    /setup redirects to /setup/step/1 carrying ?token=, so follow.
+say "Hitting /setup?token=… (follows one redirect to step 1)"
+HTTP_CODE=$(curl -sL -o /dev/null -w "%{http_code}" \
   "http://localhost:$PORT/setup?token=$TOKEN")
-[[ "$HTTP_CODE" == "200" ]] || fail "/setup returned HTTP $HTTP_CODE (expected 200)"
+[[ "$HTTP_CODE" == "200" ]] || fail "/setup → step/1 returned HTTP $HTTP_CODE (expected 200)"
 
 # ── 6. POST /api/setup/save with a trivial valid payload
 say "POST /api/setup/save"
@@ -125,7 +139,7 @@ DB_VAL=$(sqlite3 "$DB_PATH" \
 #       that requires real Google OAuth so we only assert the token is
 #       still valid mid-wizard (no user yet).
 say "Token still valid (no admin signed in yet)"
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+HTTP_CODE=$(curl -sL -o /dev/null -w "%{http_code}" \
   "http://localhost:$PORT/setup?token=$TOKEN")
 [[ "$HTTP_CODE" == "200" ]] || fail "/setup token rejected mid-flow (HTTP $HTTP_CODE)"
 

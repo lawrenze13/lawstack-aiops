@@ -1,4 +1,7 @@
-import "server-only";
+// Intentionally NOT importing 'server-only' — transitively loaded by the
+// migrate CLI via server/db/client.ts → server/lib/env.ts. Next.js still
+// tree-shakes this out of client bundles; direct client imports would fail
+// on `better-sqlite3` anyway.
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/server/db/client";

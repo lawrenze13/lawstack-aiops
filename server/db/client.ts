@@ -44,4 +44,8 @@ export type DB = typeof db;
 // Run boot reconciler exactly once on first DB import in any server context.
 // Lives here (not instrumentation.ts) because the latter is webpack-bundled
 // for both Node and Edge runtimes and chokes on better-sqlite3's bindings.
-import("../worker/lazy-init").then((m) => m.ensureInitialised()).catch(() => {});
+// Skipped when running as a CLI (migrate-cli sets AIOPS_CLI=1) so the
+// tooling path doesn't eagerly load the full server module graph.
+if (!process.env.AIOPS_CLI) {
+  import("../worker/lazy-init").then((m) => m.ensureInitialised()).catch(() => {});
+}

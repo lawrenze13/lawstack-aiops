@@ -1,4 +1,5 @@
-import "server-only";
+// Intentionally NOT importing 'server-only' — transitively loaded by
+// server/lib/config.ts, which the migrate CLI pulls in via client.ts.
 import { db } from "@/server/db/client";
 import { auditLog } from "@/server/db/schema";
 
