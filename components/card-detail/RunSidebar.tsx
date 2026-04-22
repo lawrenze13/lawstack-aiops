@@ -65,10 +65,10 @@ export function RunSidebar({
                   const target = document.getElementById(`run-${r.id}`);
                   if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
                 }}
-                className={`block rounded border px-2 py-1.5 text-xs hover:border-blue-500/40 hover:bg-blue-500/5 ${
+                className={`block rounded border-l-2 border px-2 py-1.5 text-xs transition-colors ${
                   currentRunId === r.id
-                    ? "border-blue-500/40 bg-blue-500/5"
-                    : "border-[color:var(--color-border)]"
+                    ? "border-l-[var(--accent)] border-y-[color:var(--color-border)] border-r-[color:var(--color-border)] bg-[color:var(--color-muted)]/40"
+                    : "border-l-transparent border-y-[color:var(--color-border)] border-r-[color:var(--color-border)] hover:border-l-[var(--accent)]/50 hover:bg-[color:var(--color-muted)]/20"
                 }`}
               >
                 <div className="flex items-center justify-between">

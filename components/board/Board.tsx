@@ -9,6 +9,7 @@ import {
 } from "@dnd-kit/react";
 import { Chip } from "@heroui/react/chip";
 import { NewTaskDialog } from "./NewTaskDialog";
+import { ThemeToggle } from "@/components/theme/ThemeToggle";
 
 const LANES = [
   { id: "ticket", label: "Ticket" },
@@ -85,28 +86,14 @@ export function Board({ initialTasks, scope, isAdmin }: Props) {
       <header className="flex items-center justify-between border-b border-[color:var(--color-border)] px-6 py-3">
         <div className="flex items-center gap-4">
           <h1 className="text-lg font-semibold">multiportal-ai-ops</h1>
-          <nav className="flex gap-2 text-sm">
-            <a
-              href="/"
-              className={`rounded-md px-3 py-1 ${scope === "me" ? "bg-[color:var(--color-muted)]" : ""}`}
-            >
+          <nav className="flex gap-1 text-sm">
+            <NavLink href="/" active={scope === "me"}>
               My Tasks
-            </a>
-            <a
-              href="/team"
-              className={`rounded-md px-3 py-1 ${scope === "all" ? "bg-[color:var(--color-muted)]" : ""}`}
-            >
+            </NavLink>
+            <NavLink href="/team" active={scope === "all"}>
               Team Board
-            </a>
-            {isAdmin ? (
-              <a
-                href="/admin/ops"
-                className="rounded-md border border-dashed border-[color:var(--color-border)] px-3 py-1 text-[color:var(--color-muted-foreground)] hover:border-[color:var(--color-foreground)] hover:text-[color:var(--color-foreground)]"
-                title="Admin ops (stuck runs, cost/day, worktree disk)"
-              >
-                ⚙ Admin
-              </a>
-            ) : null}
+            </NavLink>
+            {isAdmin ? <NavLink href="/admin/ops">⚙ Admin</NavLink> : null}
           </nav>
         </div>
         <div className="flex items-center gap-3">
@@ -116,6 +103,7 @@ export function Board({ initialTasks, scope, isAdmin }: Props) {
               {error.length > 80 ? "…" : ""}
             </span>
           ) : null}
+          <ThemeToggle />
           <NewTaskDialog onCreated={refresh} />
         </div>
       </header>
@@ -180,6 +168,32 @@ export function Board({ initialTasks, scope, isAdmin }: Props) {
         </section>
       </DragDropProvider>
     </div>
+  );
+}
+
+/**
+ * Text-style nav link. HeroUI v3 Button is not polymorphic (no `as="a"`
+ * prop), so we use a plain `<a>` styled to match the "ghost" (inactive)
+ * and "secondary" (active) Button variants visually.
+ */
+function NavLink({
+  href,
+  active,
+  children,
+}: {
+  href: string;
+  active?: boolean;
+  children: React.ReactNode;
+}) {
+  const base =
+    "inline-flex items-center justify-center rounded-md px-3 py-1 text-sm font-medium transition-colors";
+  const tone = active
+    ? "bg-[color:var(--color-muted)] text-[color:var(--color-foreground)]"
+    : "text-[color:var(--color-muted-foreground)] hover:bg-[color:var(--color-muted)]/60 hover:text-[color:var(--color-foreground)]";
+  return (
+    <a href={href} className={`${base} ${tone}`}>
+      {children}
+    </a>
   );
 }
 
