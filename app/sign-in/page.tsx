@@ -1,5 +1,11 @@
+import { redirect } from "next/navigation";
 import { signIn } from "@/server/auth/config";
 import { ALLOWED_DOMAINS } from "@/server/lib/env";
+import { db } from "@/server/db/client";
+import { users } from "@/server/db/schema";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 type Props = {
   searchParams: Promise<{ from?: string; error?: string }>;
@@ -11,6 +17,12 @@ function formatDomains(): string {
 }
 
 export default async function SignInPage({ searchParams }: Props) {
+  // Fresh-install guard: if no users exist yet, Google OAuth isn't configured.
+  // Bounce to /setup which shows "check stdout for token URL" instead of a
+  // Continue-with-Google button that would only produce a confusing error.
+  const anyUser = db.select({ id: users.id }).from(users).limit(1).all();
+  if (anyUser.length === 0) redirect("/setup");
+
   const sp = await searchParams;
   const from = sp.from ?? "/";
   const error = sp.error;

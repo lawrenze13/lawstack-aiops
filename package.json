@@ -18,7 +18,8 @@
     "cron:nightly": "tsx server/cron/nightly.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "smoke:install": "bash scripts/smoke-install.sh"
+    "smoke:install": "bash scripts/smoke-install.sh",
+    "dev:fresh": "bash scripts/dev-fresh.sh"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.7.4",
