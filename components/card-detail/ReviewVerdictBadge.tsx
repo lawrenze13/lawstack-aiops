@@ -4,6 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@heroui/react/button";
 import { Chip } from "@heroui/react/chip";
+import {
+  Popover,
+  PopoverContent,
+  PopoverDialog,
+  PopoverTrigger,
+} from "@heroui/react/popover";
 import { BUTTON_INTENTS, VERDICT_CHIP } from "@/components/ui/tokens";
 
 export type ReviewVerdictState =
@@ -107,26 +113,38 @@ export function ReviewVerdictBadge({ taskId, initial }: Props) {
   const severity = state.verdict === "P1" ? "P1 Critical" : "P2 Blocker";
   const verdictChip = state.verdict === "P1" ? VERDICT_CHIP.P1 : VERDICT_CHIP.P2_BLOCKER;
   return (
-    <details className="group">
-      <summary className="cursor-pointer list-none">
-        <Chip {...verdictChip} size="sm">
-          ❌ Review {severity} — click for details
-        </Chip>
-      </summary>
-      <div className="absolute mt-1 max-w-md rounded-md border border-red-500/40 bg-[color:var(--color-card)] p-3 text-xs shadow-lg">
-        <div className="mb-1 font-semibold text-red-800">
-          Blocking issues ({severity})
-        </div>
-        {state.blockers ? (
-          <pre className="whitespace-pre-wrap font-mono text-[11px] leading-snug text-[color:var(--color-foreground)]">
-            {state.blockers}
-          </pre>
-        ) : (
-          <p className="text-[color:var(--color-muted-foreground)]">
-            See the PR review for details.
-          </p>
-        )}
-      </div>
-    </details>
+    <Popover>
+      <PopoverTrigger>
+        {/* Invisible button wrapper so Popover has a focusable trigger
+            (React Aria requires this). The chip is the visible affordance. */}
+        <button type="button" className="cursor-pointer">
+          <Chip {...verdictChip} size="sm">
+            ❌ Review {severity} — click for details
+          </Chip>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent>
+        <PopoverDialog className="max-w-md p-3">
+          <div className="mb-1 font-semibold text-red-800">
+            Blocking issues ({severity})
+          </div>
+          {/*
+            Render blockers as plain text children (NOT
+            dangerouslySetInnerHTML) — blockers come from PR comments
+            which could contain untrusted markdown. React escapes
+            strings as children by default. Safe.
+          */}
+          {state.blockers ? (
+            <pre className="whitespace-pre-wrap font-mono text-[11px] leading-snug text-[color:var(--color-foreground)]">
+              {state.blockers}
+            </pre>
+          ) : (
+            <p className="text-xs text-[color:var(--color-muted-foreground)]">
+              See the PR review for details.
+            </p>
+          )}
+        </PopoverDialog>
+      </PopoverContent>
+    </Popover>
   );
 }

@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { Button } from "@heroui/react/button";
 import { Chip } from "@heroui/react/chip";
+import { BUTTON_INTENTS } from "@/components/ui/tokens";
 import { ArtifactViewer } from "./ArtifactViewer";
 import { ChangesViewer } from "./ChangesViewer";
 import { DevShell } from "./DevShell";
@@ -210,17 +212,22 @@ function TabButton({
   onClick: () => void;
   children: ReactNode;
 }) {
+  // We deliberately keep a custom tab strip (NOT HeroUI <Tabs>) because v3
+  // Tabs unmounts inactive panels (issue #1562), which would tear down
+  // RunLog's EventSource + ChatBox local state on every tab switch. The
+  // display:hidden mount-preservation pattern lives in the caller; this
+  // component is just the trigger visual.
+  //
+  // active = primary (electric-green accent), inactive = light (ghost-like).
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-md px-3 py-1 text-xs font-medium ${
-        active
-          ? "bg-[color:var(--color-foreground)] text-[color:var(--color-background)]"
-          : "text-[color:var(--color-muted-foreground)] hover:bg-[color:var(--color-muted)]"
-      }`}
+    <Button
+      {...(active
+        ? BUTTON_INTENTS["tab-active"]
+        : BUTTON_INTENTS["tab-inactive"])}
+      size="sm"
+      onPress={onClick}
     >
       {children}
-    </button>
+    </Button>
   );
 }
