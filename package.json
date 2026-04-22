@@ -17,7 +17,8 @@
     "db:studio": "drizzle-kit studio",
     "cron:nightly": "tsx server/cron/nightly.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "smoke:install": "bash scripts/smoke-install.sh"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.7.4",

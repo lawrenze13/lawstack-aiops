@@ -22,8 +22,9 @@ export default authEdge((req) => {
     pathname === "/setup" ||
     pathname.startsWith("/setup/") ||
     pathname.startsWith("/api/setup/");
+  const isHealth = pathname === "/api/health";
 
-  if (isAuthRoute || isSignIn || isSetup) return NextResponse.next();
+  if (isAuthRoute || isSignIn || isSetup || isHealth) return NextResponse.next();
 
   if (!req.auth) {
     if (pathname.startsWith("/api/")) {

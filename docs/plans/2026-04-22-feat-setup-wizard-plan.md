@@ -508,12 +508,12 @@ surfaces only the 3 knobs per agent.
 
 ### Phase 7: Install validation (0.5 day)
 
-- [ ] `scripts/smoke-install.sh` — fresh DB, boot server on ephemeral
+- [x] `scripts/smoke-install.sh` — fresh DB, boot server on ephemeral
       port, curl each wizard step, assert DB rows.
-- [ ] `docs/install-checklist.md` — human checklist for browser-only
+- [x] `docs/install-checklist.md` — human checklist for browser-only
       bits (OAuth redirect, first sign-in).
-- [ ] README additions: "Setup" section describing the wizard flow.
-- [ ] Exit gate: `bash scripts/smoke-install.sh` exits 0 on a fresh
+- [x] README additions: "Setup" section describing the wizard flow.
+- [x] Exit gate: `bash scripts/smoke-install.sh` exits 0 on a fresh
       clone.
 
 **Total: ~5 days.** Descopable to ~3 days by cutting:
