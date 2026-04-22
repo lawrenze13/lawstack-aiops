@@ -992,7 +992,26 @@ function CostBadge({
   usd: number;
   costState: State["costState"];
 }) {
-  const cls =
+  // Threshold-crossing flash: when costState changes warn→kill (or ok→warn),
+  // trigger a 600ms background pulse so the transition is visible on a
+  // busy screen. The flash class is applied for one React tick after the
+  // state changes, then removed so the animation can re-play if the state
+  // bounces back.
+  const [flash, setFlash] = useState(false);
+  const prevStateRef = useRef<State["costState"]>(costState);
+  useEffect(() => {
+    if (prevStateRef.current !== costState && costState !== "ok") {
+      setFlash(true);
+      const t = setTimeout(() => setFlash(false), 650);
+      return () => clearTimeout(t);
+    }
+    prevStateRef.current = costState;
+  }, [costState]);
+  useEffect(() => {
+    prevStateRef.current = costState;
+  }, [costState]);
+
+  const tone =
     costState === "kill"
       ? "bg-red-500/15 text-red-700 border-red-500/40"
       : costState === "warn"
@@ -1000,7 +1019,9 @@ function CostBadge({
         : "bg-[color:var(--surface-secondary)] text-[color:var(--muted)] border-[color:var(--border)]";
   return (
     <span
-      className={`rounded border px-1.5 py-0.5 font-mono text-[10px] ${cls}`}
+      className={`rounded border px-1.5 py-0.5 font-mono text-[10px] transition-colors ${tone} ${
+        flash ? "animate-pulse shadow-md" : ""
+      }`}
       title="running cost"
     >
       ${usd.toFixed(4)}
@@ -1036,24 +1057,29 @@ function toolIcon(name: string): string {
   }
 }
 
+/**
+ * Two families — READ (the agent is observing) and WRITE (the agent is
+ * changing something). Single accent hue with weight variation instead
+ * of a 6-colour rainbow. "Signal room" aesthetic per the heroui-migration
+ * plan's design direction.
+ */
 function toolColor(name: string): string {
   switch (name) {
+    // READ — agent is gathering context. Muted, light dashed-border feel.
     case "Read":
     case "Glob":
     case "Grep":
-      return "border-blue-500/30 bg-blue-500/5";
+    case "WebFetch":
+    case "TodoWrite":
+      return "border-[color:var(--border)] bg-[color:var(--surface-secondary)]/40";
+    // WRITE / SIDE-EFFECT — agent is mutating state. Accent border +
+    // subtle accent tint to draw the eye.
     case "Write":
     case "Edit":
     case "MultiEdit":
-      return "border-orange-500/30 bg-orange-500/5";
     case "Bash":
-      return "border-purple-500/30 bg-purple-500/5";
     case "Task":
-      return "border-indigo-500/30 bg-indigo-500/5";
-    case "WebFetch":
-      return "border-cyan-500/30 bg-cyan-500/5";
-    case "TodoWrite":
-      return "border-emerald-500/30 bg-emerald-500/5";
+      return "border-[color:var(--accent)]/40 bg-[color:var(--accent)]/5";
     default:
       return "border-[color:var(--border)] bg-[color:var(--surface-secondary)]/40";
   }

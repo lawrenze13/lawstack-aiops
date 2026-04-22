@@ -2,6 +2,21 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import Link from "next/link";
 import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
+import {
+  TableBody,
+  TableCell,
+  TableColumn,
+  TableContent,
+  TableHeader,
+  TableRoot,
+  TableRow,
+  TableScrollContainer,
+} from "@heroui/react/table";
+import { Chip } from "@heroui/react/chip";
+import {
+  RUN_STATUS_CHIP,
+  type RunStatusUI,
+} from "@/components/ui/tokens";
 import { auth } from "@/server/auth/config";
 import { db } from "@/server/db/client";
 import { auditLog, runs, tasks, worktrees } from "@/server/db/schema";
@@ -333,6 +348,12 @@ function Panel({
   );
 }
 
+/**
+ * Thin wrapper around HeroUI v3's compound Table so the 4 admin call sites
+ * keep using the simple `headers + rows` prop shape. The Table is not
+ * interactive (no sort, no select) — React-Aria's TableView gives us
+ * a11y labels + keyboard nav for free anyway.
+ */
 function Table({
   headers,
   rows,
@@ -341,46 +362,38 @@ function Table({
   rows: Array<Array<React.ReactNode>>;
 }) {
   return (
-    <table className="w-full text-xs">
-      <thead className="sticky top-0 bg-[color:var(--surface-secondary)]/60 text-[10px] uppercase tracking-wider text-[color:var(--muted)]">
-        <tr>
-          {headers.map((h, i) => (
-            <th key={i} className="px-3 py-1.5 text-left font-medium">
-              {h}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, ri) => (
-          <tr key={ri} className="border-t border-[color:var(--border)]">
-            {row.map((cell, ci) => (
-              <td key={ci} className="px-3 py-1.5 align-top">
-                {cell}
-              </td>
+    <TableRoot aria-label="admin ops data">
+      <TableScrollContainer>
+        <TableContent>
+          <TableHeader>
+            {headers.map((h, i) => (
+              <TableColumn key={i}>{h}</TableColumn>
             ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row, ri) => (
+              <TableRow key={ri}>
+                {row.map((cell, ci) => (
+                  <TableCell key={ci}>{cell}</TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </TableContent>
+      </TableScrollContainer>
+    </TableRoot>
   );
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const cls =
-    status === "completed"
-      ? "bg-blue-500/10 text-blue-700 border-blue-500/30"
-      : status === "running"
-        ? "bg-green-500/15 text-green-700 border-green-500/40"
-        : status === "cost_killed"
-          ? "bg-red-500/15 text-red-700 border-red-500/40"
-          : status === "failed"
-            ? "bg-red-500/10 text-red-700 border-red-500/30"
-            : "bg-amber-500/10 text-amber-800 border-amber-500/30";
+  const props =
+    (RUN_STATUS_CHIP as Record<string, (typeof RUN_STATUS_CHIP)[RunStatusUI]>)[
+      status
+    ] ?? RUN_STATUS_CHIP.completed;
   return (
-    <span className={`rounded border px-1.5 py-0.5 text-[9px] uppercase ${cls}`}>
+    <Chip {...props} size="sm" className="uppercase text-[9px]">
       {status}
-    </span>
+    </Chip>
   );
 }
 

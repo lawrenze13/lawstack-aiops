@@ -4,6 +4,15 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@heroui/react/button";
 import { TextArea } from "@heroui/react/textarea";
+import { ListBox } from "@heroui/react/list-box";
+import { ListBoxItem } from "@heroui/react/list-box-item";
+import {
+  SelectRoot,
+  SelectTrigger,
+  SelectValue,
+  SelectIndicator,
+  SelectPopover,
+} from "@heroui/react/select";
 import { BUTTON_INTENTS } from "@/components/ui/tokens";
 
 export type NewRunAgentOption = {
@@ -83,39 +92,51 @@ export function NewRunButton({ taskId, runActive, agents }: Props) {
 
       {open ? (
         <div className="mt-2 rounded-md border border-[color:var(--border)] bg-[color:var(--surface-secondary)]/30 p-2">
-          <label className="mb-2 flex flex-col gap-1 text-[11px]">
-            <span className="font-medium text-[color:var(--muted)]">
-              Agent
-            </span>
-            <select
-              value={agentId}
-              onChange={(e) => pickAgent(e.target.value)}
-              className="rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1 text-xs"
+          <div className="mb-2 flex flex-col gap-1 text-[11px]">
+            <span className="font-medium text-[color:var(--muted)]">Agent</span>
+            <SelectRoot
+              aria-label="Agent"
+              selectedKey={agentId}
+              onSelectionChange={(k) => pickAgent(String(k))}
             >
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name} ({a.id})
-                </option>
-              ))}
-            </select>
-          </label>
+              <SelectTrigger>
+                <SelectValue />
+                <SelectIndicator />
+              </SelectTrigger>
+              <SelectPopover>
+                <ListBox>
+                  {agents.map((a) => (
+                    <ListBoxItem key={a.id} id={a.id}>
+                      {a.name} ({a.id})
+                    </ListBoxItem>
+                  ))}
+                </ListBox>
+              </SelectPopover>
+            </SelectRoot>
+          </div>
 
-          <label className="mb-2 flex flex-col gap-1 text-[11px]">
-            <span className="font-medium text-[color:var(--muted)]">
-              Lane
-            </span>
-            <select
-              value={lane}
-              onChange={(e) => setLane(e.target.value as typeof lane)}
-              className="rounded border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1 text-xs"
+          <div className="mb-2 flex flex-col gap-1 text-[11px]">
+            <span className="font-medium text-[color:var(--muted)]">Lane</span>
+            <SelectRoot
+              aria-label="Lane"
+              selectedKey={lane}
+              onSelectionChange={(k) => setLane(String(k) as typeof lane)}
             >
-              {(selected?.lanes ?? []).map((l) => (
-                <option key={l} value={l}>
-                  {l}
-                </option>
-              ))}
-            </select>
-          </label>
+              <SelectTrigger>
+                <SelectValue />
+                <SelectIndicator />
+              </SelectTrigger>
+              <SelectPopover>
+                <ListBox>
+                  {(selected?.lanes ?? []).map((l) => (
+                    <ListBoxItem key={l} id={l}>
+                      {l}
+                    </ListBoxItem>
+                  ))}
+                </ListBox>
+              </SelectPopover>
+            </SelectRoot>
+          </div>
 
           <label className="mb-2 flex flex-col gap-1 text-[11px]">
             <span className="font-medium text-[color:var(--muted)]">
