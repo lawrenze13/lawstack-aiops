@@ -4,7 +4,7 @@ status: active
 date: 2026-04-22
 ---
 
-# multiportal-ai-ops — install checklist
+# LawStack/aiops — install checklist
 
 `scripts/smoke-install.sh` covers the machine-checkable parts of a
 fresh install (fresh DB, boot, token, save endpoint, DB write). This

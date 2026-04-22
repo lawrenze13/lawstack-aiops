@@ -9,5 +9,5 @@
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   // eslint-disable-next-line no-console
-  console.log("[multiportal-ai-ops] Node runtime up");
+  console.log("[lawstack-aiops] Node runtime up");
 }

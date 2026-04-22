@@ -22,8 +22,8 @@ const ibmPlexSans = IBM_Plex_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "multiportal-ai-ops",
-  description: "AI ticket-automation swimlanes",
+  title: "LawStack/aiops",
+  description: "Operator console for Claude Code — ticket to PR, in lanes.",
 };
 
 export default function RootLayout({

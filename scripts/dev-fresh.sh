@@ -83,8 +83,19 @@ cat <<EOF
 EOF
 
 # ── Boot
+# Scrub inherited wizard-owned env vars so a fresh DB really IS fresh —
+# your repo's .env has production Google/Jira creds, which would make
+# /sign-in render the Google button (oauthConfigured=true) and skip the
+# wizard. Empty strings override .env (Next.js loads .env first, then
+# process.env wins) and zod's optionalStr coerces "" back to undefined.
 export DATABASE_URL="$DB_PATH"
 export AUTH_SECRET
 export AUTH_URL
 export PORT
+export AUTH_GOOGLE_ID=""
+export AUTH_GOOGLE_SECRET=""
+export JIRA_BASE_URL=""
+export JIRA_EMAIL=""
+export JIRA_API_TOKEN=""
+export BASE_REPO=""
 exec npx next dev -p "$PORT"

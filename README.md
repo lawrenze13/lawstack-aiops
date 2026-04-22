@@ -1,4 +1,4 @@
-# multiportal-ai-ops
+# LawStack/aiops
 
 Next.js 15 swimlane UI for driving Claude Code agents on Jira tickets. Replaces the existing Slack + n8n + `ticket-worker.sh` flow on this VPS.
 

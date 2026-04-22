@@ -50,7 +50,11 @@ export const BUTTON_INTENTS = {
   "success-action": { variant: "primary" },
   "destructive": { variant: "danger" },
   "retry": { variant: "danger-soft" },
-  "neutral-secondary": { variant: "secondary" },
+  // "secondary" renders all-white in light mode — invisible next to a
+  // --surface background. "outline" keeps the same muted feel but always
+  // shows a visible border in both themes (used by Preview, Archive,
+  // StepTest, etc.).
+  "neutral-secondary": { variant: "outline" },
   "tab-active": { variant: "primary" },
   "tab-inactive": { variant: "ghost" },
 } as const satisfies Record<ButtonIntent, { variant: ButtonVariant }>;

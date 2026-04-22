@@ -89,7 +89,7 @@ async function rebaseAndPush(
         "-c",
         "user.email=ai-ops@multiportal.io",
         "-c",
-        "user.name=multiportal-ai-ops",
+        "user.name=lawstack-aiops",
         "rebase",
         `origin/${branch}`,
       ],

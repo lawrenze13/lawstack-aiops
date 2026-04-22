@@ -226,7 +226,7 @@ export default async function CardDetailPage({ params }: Props) {
 
   return (
     <main className="flex h-screen flex-col">
-      <header className="flex items-center justify-between border-b border-[color:var(--border)] px-6 py-3">
+      <header className="flex items-center justify-between border-b border-[color:var(--border)] bg-[color:var(--background)]/80 px-6 py-3 backdrop-blur">
         <div>
           <Link
             href="/"

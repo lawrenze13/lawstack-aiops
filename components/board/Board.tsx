@@ -10,6 +10,7 @@ import {
 import { Chip } from "@heroui/react/chip";
 import { NewTaskDialog } from "./NewTaskDialog";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { Brandmark } from "@/components/brand/Brandmark";
 
 const LANES = [
   { id: "ticket", label: "Ticket" },
@@ -83,9 +84,9 @@ export function Board({ initialTasks, scope, isAdmin }: Props) {
 
   return (
     <div className="flex h-screen flex-col">
-      <header className="flex items-center justify-between border-b border-[color:var(--border)] px-6 py-3">
-        <div className="flex items-center gap-4">
-          <h1 className="text-lg font-semibold">multiportal-ai-ops</h1>
+      <header className="flex items-center justify-between border-b border-[color:var(--border)] bg-[color:var(--background)]/80 px-6 py-3 backdrop-blur">
+        <div className="flex items-center gap-5">
+          <Brandmark size={22} />
           <nav className="flex gap-1 text-sm">
             <NavLink href="/" active={scope === "me"}>
               My Tasks
@@ -103,6 +104,13 @@ export function Board({ initialTasks, scope, isAdmin }: Props) {
               {error.length > 80 ? "…" : ""}
             </span>
           ) : null}
+          <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--muted)]">
+            <span className="relative inline-flex">
+              <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--accent)]" />
+              <span className="absolute inline-flex h-1.5 w-1.5 animate-ping rounded-full bg-[color:var(--accent)] opacity-75" />
+            </span>
+            online
+          </span>
           <ThemeToggle />
           <NewTaskDialog onCreated={refresh} />
         </div>

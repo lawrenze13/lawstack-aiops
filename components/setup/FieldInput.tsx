@@ -14,6 +14,15 @@ type Props = {
   previouslySet?: boolean;
 };
 
+// HeroUI v3's Input is a single <input> whose `className` lands on the
+// element itself. The default has almost no contrast against our dark
+// --surface token, so force a visible bordered look in both themes.
+const INPUT_CLS =
+  "w-full rounded-md border border-[color:var(--border)] bg-[color:var(--surface-secondary)]/60 px-3 py-2 text-sm text-[color:var(--foreground)] placeholder:text-[color:var(--muted)] hover:border-[color:var(--accent)]/50 focus:border-[color:var(--accent)] focus:bg-[color:var(--surface-secondary)] focus:outline-none transition-colors";
+
+const TEXTAREA_CLS =
+  "w-full rounded-md border border-[color:var(--border)] bg-[color:var(--surface-secondary)]/60 px-3 py-2 font-mono text-[12px] leading-relaxed text-[color:var(--foreground)] placeholder:text-[color:var(--muted)] hover:border-[color:var(--accent)]/50 focus:border-[color:var(--accent)] focus:bg-[color:var(--surface-secondary)] focus:outline-none transition-colors";
+
 /**
  * Polymorphic input that renders the right HeroUI primitive for
  * `field.kind`. Used by both the wizard and /admin/settings.
@@ -46,7 +55,7 @@ export function FieldInput({ field, value, onChange, previouslySet }: Props) {
           onChange={(e) => onChange(e.target.value)}
           rows={6}
           placeholder={field.placeholder}
-          className="w-full"
+          className={TEXTAREA_CLS}
         />
       );
     case "password":
@@ -57,6 +66,7 @@ export function FieldInput({ field, value, onChange, previouslySet }: Props) {
           onChange={(e) => onChange(e.target.value)}
           placeholder={field.placeholder}
           autoComplete="off"
+          className={INPUT_CLS}
         />
       );
     case "number":
@@ -71,6 +81,7 @@ export function FieldInput({ field, value, onChange, previouslySet }: Props) {
           min={field.min}
           max={field.max}
           placeholder={field.placeholder}
+          className={INPUT_CLS}
         />
       );
     case "url":
@@ -91,6 +102,7 @@ export function FieldInput({ field, value, onChange, previouslySet }: Props) {
           value={typeof value === "string" ? value : ""}
           onChange={(e) => onChange(e.target.value)}
           placeholder={field.placeholder}
+          className={INPUT_CLS}
         />
       );
   }

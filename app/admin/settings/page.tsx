@@ -45,7 +45,10 @@ export default async function AdminSettingsPage() {
       <main className="mx-auto max-w-4xl p-6">
       <header className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Settings</h1>
+          <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--muted)]">
+            admin · settings
+          </div>
+          <h1 className="text-xl font-semibold">Configuration</h1>
           <p className="mt-1 text-sm text-[color:var(--muted)]">
             Configure every knob that used to live in <code>.env</code>.
             Changes are picked up without a restart.

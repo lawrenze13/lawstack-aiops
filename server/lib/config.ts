@@ -61,10 +61,16 @@ export const configSchema = z.object({
   BASE_REPO: optionalStr(z.string().min(1)),
   PREVIEW_DEV_PATH: optionalStr(z.string().min(1)),
   PREVIEW_DEV_URL: optionalStr(z.string().url()),
+  // Accept a real boolean from the wizard UI or the string "true"/"1" from
+  // a .env fallback. Both normalise to a boolean.
   PREVIEW_DEV_ENABLE_SHELL: z
-    .string()
+    .union([z.boolean(), z.string()])
     .optional()
-    .transform((v) => v === "true" || v === "1"),
+    .transform((v) => {
+      if (typeof v === "boolean") return v;
+      if (typeof v === "string") return v === "true" || v === "1";
+      return false;
+    }),
   // Per-agent overrides. JSON-serialised map of
   // { [agentId]: { costWarnUsd?, costKillUsd?, model? } }. Agents' prompts,
   // maxTurns, and permissionMode stay in registry.ts (code-owned).

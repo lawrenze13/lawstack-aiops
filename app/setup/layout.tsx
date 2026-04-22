@@ -1,14 +1,11 @@
 import type { Metadata } from "next";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { Brandmark } from "@/components/brand/Brandmark";
 
 export const metadata: Metadata = {
-  title: "Setup — multiportal-ai-ops",
+  title: "Setup — LawStack/aiops",
 };
 
-/**
- * Minimal chrome for the setup wizard. No sidebar, no board header —
- * the wizard is its own world while the instance is being bootstrapped.
- */
 export default function SetupLayout({
   children,
 }: {
@@ -16,20 +13,32 @@ export default function SetupLayout({
 }) {
   return (
     <div className="flex min-h-screen flex-col bg-[color:var(--background)]">
-      <header className="flex items-center justify-between border-b border-[color:var(--border)] px-6 py-3">
+      <header className="flex items-center justify-between border-b border-[color:var(--border)] bg-[color:var(--background)]/80 px-6 py-3 backdrop-blur">
         <div className="flex items-center gap-3">
-          <span className="text-sm font-semibold text-[color:var(--foreground)]">
-            multiportal-ai-ops
-          </span>
-          <span className="rounded-full border border-[color:var(--accent)]/40 bg-[color:var(--accent)]/10 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-[color:var(--accent)]">
+          <Brandmark size={24} />
+          <span className="rounded-full border border-[color:var(--accent)]/40 bg-[color:var(--accent)]/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--accent)]">
             first-run setup
           </span>
         </div>
         <ThemeToggle />
       </header>
-      <main className="flex-1 flex justify-center p-6">
+
+      <main className="flex flex-1 justify-center p-6">
         <div className="w-full max-w-3xl">{children}</div>
       </main>
+
+      <footer className="border-t border-[color:var(--border)] px-6 py-3 font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--muted)]">
+        <div className="flex items-center justify-between">
+          <span>lawstack/aiops · bootstrap mode</span>
+          <span className="flex items-center gap-2">
+            <span className="relative inline-flex">
+              <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--accent)]" />
+              <span className="absolute inline-flex h-1.5 w-1.5 animate-ping rounded-full bg-[color:var(--accent)] opacity-75" />
+            </span>
+            orchestrator online
+          </span>
+        </div>
+      </footer>
     </div>
   );
 }

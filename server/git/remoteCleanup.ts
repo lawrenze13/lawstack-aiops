@@ -62,7 +62,7 @@ export async function deleteRemoteBranchAndClosePr(
           "close",
           branch,
           "--comment",
-          "Closed via multiportal-ai-ops archive.",
+          "Closed via LawStack/aiops archive.",
         ],
         { cwd },
       );

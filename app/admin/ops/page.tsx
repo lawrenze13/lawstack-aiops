@@ -145,7 +145,7 @@ export default async function AdminOpsPage() {
     <>
     <SettingsDriftBanner role={user.role} />
     <main className="flex min-h-screen flex-col">
-      <header className="border-b border-[color:var(--border)] px-6 py-3">
+      <header className="border-b border-[color:var(--border)] bg-[color:var(--background)]/80 px-6 py-3 backdrop-blur">
         <div className="flex items-center justify-between">
           <div>
             <Link
@@ -155,7 +155,9 @@ export default async function AdminOpsPage() {
               ← Board
             </Link>
             <div className="mt-1 flex items-center gap-3">
-              <h1 className="text-lg font-semibold">Admin · Ops</h1>
+              <h1 className="font-mono text-[11px] uppercase tracking-[0.18em] text-[color:var(--muted)]">
+                admin · ops
+              </h1>
               <AutoRefresh intervalMs={15_000} />
             </div>
           </div>
@@ -371,7 +373,9 @@ function Table({
         <TableContent>
           <TableHeader>
             {headers.map((h, i) => (
-              <TableColumn key={i}>{h}</TableColumn>
+              <TableColumn key={i} isRowHeader={i === 0}>
+                {h}
+              </TableColumn>
             ))}
           </TableHeader>
           <TableBody>

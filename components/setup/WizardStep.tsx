@@ -86,16 +86,19 @@ export function WizardStep({
     });
   };
 
+  // When the last step finishes, send the operator straight to /sign-in so
+  // they create their first admin account via Google. /sign-in will detect
+  // OAuth is now configured and show the Continue-with-Google button.
   const goNext = () => {
     const next = isLastStep
-      ? `/?setup=complete`
+      ? `/sign-in?from=/`
       : `/setup/step/${stepNumber + 1}?token=${encodeURIComponent(token)}`;
     save(next);
   };
 
   const skip = () => {
     const next = isLastStep
-      ? `/?setup=complete`
+      ? `/sign-in?from=/`
       : `/setup/step/${stepNumber + 1}?token=${encodeURIComponent(token)}`;
     router.push(next);
   };
