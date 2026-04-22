@@ -36,6 +36,18 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1).default("./data/app.db"),
   WORKTREE_ROOT: z.string().min(1).default("/var/aiops/worktrees"),
   BASE_REPO: optionalStr(z.string().min(1)),
+  // Local dev checkout used by the "Preview in dev" button. When unset,
+  // the button is hidden. Path is the filesystem root; URL is how the
+  // browser reaches it.
+  PREVIEW_DEV_PATH: optionalStr(z.string().min(1)),
+  PREVIEW_DEV_URL: optionalStr(z.string().url()),
+  // Opt-in shell access from the card's "Dev Shell" tab. OFF by default
+  // because it's effectively remote code execution as the node process
+  // user — fine for a single-operator dev box, not for shared prod.
+  PREVIEW_DEV_ENABLE_SHELL: z
+    .string()
+    .optional()
+    .transform((v) => v === "true" || v === "1"),
 });
 
 const parsed = schema.safeParse(process.env);

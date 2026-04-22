@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/toast/ToastHost";
 
@@ -18,11 +18,42 @@ export function ChatBox({ runId, canSend, blockedReason }: Props) {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // Local optimistic unlock. The server-rendered `canSend` flips to true
+  // only after router.refresh() re-reads the DB — which takes a round-trip.
+  // By subscribing to the run's SSE for `needs_input` / `end` events, we
+  // unlock the input the instant those signals arrive, with no flash of
+  // "still disabled" while the page refetches.
+  const [localUnlock, setLocalUnlock] = useState(false);
+
+  useEffect(() => {
+    setLocalUnlock(false);
+    const es = new EventSource(`/api/runs/${runId}/stream`, { withCredentials: true });
+    const onServer = (e: MessageEvent) => {
+      try {
+        const p = JSON.parse(e.data) as { kind?: string };
+        if (p.kind === "needs_input") setLocalUnlock(true);
+      } catch {
+        // ignore
+      }
+    };
+    const onEnd = () => setLocalUnlock(true);
+    es.addEventListener("server", onServer);
+    es.addEventListener("end", onEnd);
+    return () => {
+      es.removeEventListener("server", onServer);
+      es.removeEventListener("end", onEnd);
+      es.close();
+    };
+  }, [runId]);
+
+  const effectiveCanSend = canSend || localUnlock;
 
   const send = () => {
     const trimmed = text.trim();
     if (!trimmed) return;
     setError(null);
+    // Sending kicks off a new turn → immediately lock back.
+    setLocalUnlock(false);
     startTransition(async () => {
       const clientRequestId = crypto.randomUUID();
       const res = await fetch(`/api/runs/${runId}/message`, {
@@ -54,7 +85,7 @@ export function ChatBox({ runId, canSend, blockedReason }: Props) {
     });
   };
 
-  const placeholder = canSend
+  const placeholder = effectiveCanSend
     ? "Type a message to continue the conversation…"
     : (blockedReason ?? "Run is still streaming — Stop or wait to chat.");
 
@@ -63,7 +94,7 @@ export function ChatBox({ runId, canSend, blockedReason }: Props) {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (canSend) send();
+          if (effectiveCanSend) send();
         }}
         className="flex items-end gap-2"
       >
@@ -73,17 +104,17 @@ export function ChatBox({ runId, canSend, blockedReason }: Props) {
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
-              if (canSend) send();
+              if (effectiveCanSend) send();
             }
           }}
           placeholder={placeholder}
-          disabled={!canSend || pending}
+          disabled={!effectiveCanSend || pending}
           rows={2}
           className="flex-1 resize-y rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-card)] px-2 py-1 text-xs placeholder:text-[color:var(--color-muted-foreground)] disabled:opacity-50"
         />
         <button
           type="submit"
-          disabled={!canSend || pending || !text.trim()}
+          disabled={!effectiveCanSend || pending || !text.trim()}
           className="rounded-md bg-[color:var(--color-foreground)] px-3 py-1.5 text-xs font-medium text-[color:var(--color-background)] disabled:opacity-50"
         >
           {pending ? "Sending…" : "Send"}

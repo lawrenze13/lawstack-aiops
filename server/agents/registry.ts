@@ -70,7 +70,37 @@ export type PromptContext = {
    * wait for human approval. See workPrompt.
    */
   interactive?: boolean;
+  /**
+   * Jira comments on the ticket (oldest-first, plain-text). Bug reports
+   * and clarification threads often live here, not in the description,
+   * so we inject them into the prompt alongside the description for
+   * Brainstorm / Plan / Review. Skipped for ce:work to keep its prompt
+   * short — by the time we implement, the Plan has already absorbed
+   * anything relevant from the comments.
+   */
+  jiraComments?: Array<{ author: string; created: string; body: string }>;
 };
+
+/**
+ * Render the task's Jira comments as a markdown section. Empty string
+ * when there are no comments — the agent prompts check for truthiness.
+ */
+function renderJiraComments(
+  comments: PromptContext["jiraComments"],
+  maxChars = 6000,
+): string {
+  if (!comments || comments.length === 0) return "";
+  const rendered = comments
+    .map((c) => `**${c.author}** · ${c.created || "unknown date"}\n${c.body}`)
+    .join("\n\n---\n\n");
+  // Budget cap so a chatty ticket doesn't blow out the prompt. Newest
+  // comments kept (they're usually most relevant); tail trimmed.
+  const trimmed =
+    rendered.length > maxChars
+      ? rendered.slice(-maxChars) + "\n\n_[earlier comments truncated]_"
+      : rendered;
+  return `\n\nComments on the Jira ticket (oldest → newest):\n${trimmed}`;
+}
 
 const brainstormPrompt = (ctx: PromptContext): string => `You are analyzing Jira ticket ${ctx.jiraKey} in this codebase and producing a brainstorm document.
 
@@ -80,7 +110,7 @@ Ticket: ${ctx.jiraKey}
 Title: ${ctx.title}
 
 Description:
-${ctx.description || "(no description provided)"}
+${ctx.description || "(no description provided)"}${renderJiraComments(ctx.jiraComments)}
 
 Produce one file:
 
@@ -117,7 +147,7 @@ Brainstorm:
 ${brainstorm || "(no brainstorm provided — produce a plan grounded in the description below)"}
 
 Description:
-${ctx.description || "(no description provided)"}${commitsBlock}
+${ctx.description || "(no description provided)"}${renderJiraComments(ctx.jiraComments)}${commitsBlock}
 
 Produce one file:
 
@@ -156,7 +186,7 @@ Ticket: ${ctx.jiraKey}
 Title: ${ctx.title}
 
 Description:
-${ctx.description || "(no description provided)"}
+${ctx.description || "(no description provided)"}${renderJiraComments(ctx.jiraComments)}
 
 Brainstorm (background):
 ${brainstorm || "(no brainstorm available)"}
@@ -231,7 +261,7 @@ Ticket: ${ctx.jiraKey}
 Title: ${ctx.title}
 
 Description:
-${ctx.description || "(no description provided)"}
+${ctx.description || "(no description provided)"}${renderJiraComments(ctx.jiraComments)}
 
 Brainstorm:
 ${brainstorm || "(no brainstorm artifact — noted; your review can proceed without it)"}
@@ -380,7 +410,7 @@ Do NOT run \`git add\`, \`git commit\`, \`git checkout -b\`, \`git push\`,
 git command. The post-implement finalisation on the server side:
   - Stages all changes you left in the working tree (\`git add -A\`).
   - Builds one commit with a message referencing this Jira ticket.
-  - Pushes to \`ai/${ctx.jiraKey}\` so the draft PR updates.
+  - Pushes to \`${ctx.jiraKey}-ai\` so the draft PR updates.
 
 You may freely run read-only git commands (\`git status\`, \`git diff\`,
 \`git log\`, \`git blame\`, \`git ls-files\`) to understand the repo.

@@ -16,6 +16,7 @@ const LANES = [
   { id: "plan", label: "Plan" },
   { id: "review", label: "Review" },
   { id: "pr", label: "PR" },
+  { id: "implement", label: "Implement" },
   { id: "done", label: "Done" },
 ] as const;
 type LaneId = (typeof LANES)[number]["id"];
@@ -34,6 +35,7 @@ type Task = {
     | "stopped"
     | "cost_killed"
     | "interrupted"
+    | "awaiting_input"
     | null;
   costUsd: number;
   prState: string | null;
@@ -60,6 +62,7 @@ export function Board({ initialTasks, scope, isAdmin }: Props) {
       plan: [],
       review: [],
       pr: [],
+      implement: [],
       done: [],
     };
     for (const t of tasks) out[t.currentLane].push(t);
@@ -294,6 +297,14 @@ function CardStatusBadges({ task }: { task: Task }) {
           title="interrupted — click to resume"
         >
           paused
+        </span>
+      ) : null}
+      {s === "awaiting_input" ? (
+        <span
+          className="rounded border border-indigo-500/40 bg-indigo-500/10 px-1 py-0.5 text-[9px] font-medium uppercase text-indigo-700"
+          title="agent is waiting for your reply"
+        >
+          waiting
         </span>
       ) : null}
       {task.prState === "jira_notified" || task.prState === "pr_opened" ? (

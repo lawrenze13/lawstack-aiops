@@ -11,13 +11,17 @@ type Props = {
 export function ArchiveButton({ taskId, jiraKey }: Props) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
+  const [deleteRemote, setDeleteRemote] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   const archive = () => {
     setError(null);
     startTransition(async () => {
-      const res = await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+      const url = deleteRemote
+        ? `/api/tasks/${taskId}?deleteRemote=1`
+        : `/api/tasks/${taskId}`;
+      const res = await fetch(url, { method: "DELETE" });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { message?: string };
         setError(body.message ?? `HTTP ${res.status}`);
@@ -42,10 +46,23 @@ export function ArchiveButton({ taskId, jiraKey }: Props) {
   }
 
   return (
-    <div className="flex items-center gap-2 rounded-md border border-red-500/40 bg-red-500/10 px-2.5 py-1 text-xs">
+    <div className="flex flex-wrap items-center gap-2 rounded-md border border-red-500/40 bg-red-500/10 px-2.5 py-1 text-xs">
       <span className="text-red-800">
-        Archive <span className="font-mono">{jiraKey}</span>? Worktree will be deleted; runs + messages kept for audit.
+        Archive <span className="font-mono">{jiraKey}</span>? Worktree + local branch deleted; runs + messages kept for audit.
       </span>
+      <label
+        className="flex items-center gap-1 text-red-800"
+        title="Also runs `gh pr close` and `git push origin --delete <branch>` on the remote"
+      >
+        <input
+          type="checkbox"
+          checked={deleteRemote}
+          onChange={(e) => setDeleteRemote(e.target.checked)}
+          disabled={pending}
+          className="h-3 w-3"
+        />
+        <span>also delete remote branch + close PR</span>
+      </label>
       <button
         type="button"
         onClick={archive}
@@ -62,7 +79,7 @@ export function ArchiveButton({ taskId, jiraKey }: Props) {
       >
         cancel
       </button>
-      {error ? <span className="text-red-800">· {error}</span> : null}
+      {error ? <span className="w-full text-red-800">· {error}</span> : null}
     </div>
   );
 }

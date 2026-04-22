@@ -3,10 +3,11 @@ import { z } from "zod";
 import { withAuth } from "@/server/lib/route";
 import { BadRequest, Conflict, Forbidden, NotFound } from "@/server/lib/errors";
 import { db } from "@/server/db/client";
-import { runs, tasks } from "@/server/db/schema";
+import { prRecords, runs, tasks } from "@/server/db/schema";
 import { audit } from "@/server/auth/audit";
 import { runRegistry } from "@/server/worker/runRegistry";
 import { removeWorktreeForTask } from "@/server/git/worktree";
+import { deleteRemoteBranchAndClosePr } from "@/server/git/remoteCleanup";
 
 export const runtime = "nodejs";
 
@@ -28,6 +29,7 @@ const LANES = [
   "plan",
   "review",
   "pr",
+  "implement",
   "done",
 ] as const;
 
@@ -124,6 +126,24 @@ export const DELETE = withAuth(async ({ req, user }) => {
     }
   }
 
+  // Remote cleanup flag — opt-in via ?deleteRemote=1. When set, we close
+  // any PR on the task's branch and delete the remote branch AFTER stopping
+  // subprocesses but BEFORE we blow away the local worktree (the worktree
+  // is our working copy for running `gh pr close` / `git push --delete`).
+  const deleteRemote = url.searchParams.get("deleteRemote") === "1";
+  let remoteResult: Awaited<ReturnType<typeof deleteRemoteBranchAndClosePr>> | null =
+    null;
+  if (deleteRemote) {
+    const pr = db
+      .select({ branch: prRecords.branch, prUrl: prRecords.prUrl })
+      .from(prRecords)
+      .where(eq(prRecords.taskId, id))
+      .get();
+    if (pr) {
+      remoteResult = await deleteRemoteBranchAndClosePr(id, pr.branch, pr.prUrl);
+    }
+  }
+
   // 2. Remove the worktree from disk (best-effort; logs warnings).
   const { removed, warnings } = await removeWorktreeForTask(id);
 
@@ -145,6 +165,8 @@ export const DELETE = withAuth(async ({ req, user }) => {
       stoppedLiveRuns: stoppedCount,
       worktreeRemoved: removed,
       worktreeWarnings: warnings,
+      deleteRemote,
+      remoteResult,
     },
   });
 
@@ -154,5 +176,6 @@ export const DELETE = withAuth(async ({ req, user }) => {
     stoppedLiveRuns: stoppedCount,
     worktreeRemoved: removed,
     worktreeWarnings: warnings,
+    remote: remoteResult,
   };
 });

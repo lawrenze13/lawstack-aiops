@@ -84,6 +84,12 @@ function reducer(state: State, action: Action): State {
         if (p.kind === "needs_input" && typeof p.question === "string") {
           next.needsInputQuestion = p.question;
         }
+        // A fresh user_message or spawned event means a new turn started —
+        // any prior pause is resolved. Clear the banner so we don't keep
+        // showing "awaiting input" while the new turn streams.
+        if (p.kind === "user_message" || p.kind === "spawned") {
+          next.needsInputQuestion = null;
+        }
       } else if (action.row.type === "result") {
         const p = action.row.payload as { total_cost_usd?: number; result?: string };
         if (typeof p.total_cost_usd === "number") next.costUsd = p.total_cost_usd;
@@ -239,17 +245,20 @@ export function RunLog({
     ended: boolean;
     warned: boolean;
     killed: boolean;
-    needsInput: boolean;
   }>({
     ended: false,
     warned: false,
     killed: false,
-    needsInput: false,
   });
   // Separate flag so we only schedule the post-completion refresh once
   // per run. If we put the setTimeout inside the same useEffect as the
   // toast, its cleanup fires on every dep change and clears the timer.
   const refreshScheduledRef = useRef(false);
+  // NEEDS_INPUT dedupe. Keyed on the question CONTENT, so a second
+  // NEEDS_INPUT within the same run — e.g., the agent asking another
+  // permission question on a later turn — retriggers toast + refresh.
+  const lastToastedQuestionRef = useRef<string | null>(null);
+  const lastRefreshedQuestionRef = useRef<string | null>(null);
 
   // Reset per-run markers when the current run changes — otherwise a
   // previous run's 'ended' state leaks into the new run's view and blocks
@@ -259,13 +268,30 @@ export function RunLog({
       ended: false,
       warned: false,
       killed: false,
-      needsInput: false,
     };
     refreshScheduledRef.current = false;
-    needsInputRefreshScheduledRef.current = false;
+    lastToastedQuestionRef.current = null;
+    lastRefreshedQuestionRef.current = null;
     dispatch({ kind: "resetForRun", initialCostUsd });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId]);
+
+  // Fallback resync: if the user tabs away while a run is in-flight and
+  // comes back after SSE has dropped or after the run has already
+  // finalised, router.refresh on visibilitychange / focus catches the
+  // new state without waiting for a stale event to arrive. Cheap — just
+  // a server-component re-render.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") router.refresh();
+    };
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [router]);
 
   useEffect(() => {
     const es = new EventSource(`/api/runs/${runId}/stream`, { withCredentials: true });
@@ -383,29 +409,40 @@ export function RunLog({
     }
   }, [state.costState, state.costUsd, toast]);
 
-  // Fire a toast + flash attention when the agent pauses for input.
+  // Fire a toast + refresh whenever we see a NEW question. Keying on the
+  // question CONTENT (not a single-shot boolean) is critical because a
+  // run can hit NEEDS_INPUT multiple times — one per turn — and we must
+  // re-toast + re-refresh for each distinct pause. Refs declared at the
+  // top of the component; reset in the per-run effect.
   useEffect(() => {
-    if (!state.needsInputQuestion || toastedRef.current.needsInput) return;
-    toastedRef.current.needsInput = true;
+    const q = state.needsInputQuestion;
+    if (!q) {
+      lastToastedQuestionRef.current = null;
+      return;
+    }
+    if (lastToastedQuestionRef.current === q) return;
+    lastToastedQuestionRef.current = q;
     toast.push({
       kind: "warn",
       title: "Agent is waiting on you",
-      body: state.needsInputQuestion.slice(0, 160),
+      body: q.slice(0, 160),
     });
   }, [state.needsInputQuestion, toast]);
 
-  // Separate refresh effect — without this the setTimeout would get
-  // cancelled when the toast push triggers a ToastHost re-render and
-  // consumers see a new `toast` ref (since cleanup runs on dep change,
-  // not only on unmount). Keep deps minimal and use a ref to prevent
-  // double-scheduling.
-  const needsInputRefreshScheduledRef = useRef(false);
   useEffect(() => {
-    if (!state.needsInputQuestion || needsInputRefreshScheduledRef.current) return;
-    needsInputRefreshScheduledRef.current = true;
-    // Small delay so the subprocess kill + DB status-flip finalise
-    // before we re-render.
-    const t = setTimeout(() => router.refresh(), 800);
+    const q = state.needsInputQuestion;
+    if (!q) {
+      lastRefreshedQuestionRef.current = null;
+      return;
+    }
+    if (lastRefreshedQuestionRef.current === q) return;
+    lastRefreshedQuestionRef.current = q;
+    // DB is flipped to 'awaiting_input' synchronously in spawnAgent the
+    // moment the NEEDS_INPUT marker is parsed, so we can refresh right
+    // away — no need to wait out a subprocess-kill grace window. A tiny
+    // 50ms buffer gives the event queue a tick to drain so the refresh
+    // isn't racing with the SSE delivery.
+    const t = setTimeout(() => router.refresh(), 50);
     return () => clearTimeout(t);
   }, [state.needsInputQuestion, router]);
 
@@ -598,18 +635,24 @@ function LiveStatusLine({
   costUsd: number;
 }) {
   const [tick, setTick] = useState(0);
-  // Pick a word per "slot" (3s windows) so it stays stable for a few seconds.
+  // `mounted` gates the time-dependent bits so the first client render
+  // matches what the server sent (`elapsed=—`). Without this, Date.now()
+  // at server-render time != Date.now() at client-hydration time and
+  // React errors with a hydration mismatch every time a run is live.
+  const [mounted, setMounted] = useState(false);
   const wordIndex = Math.floor(tick / 20) % WORDS.length;
   const word = WORDS[wordIndex]!;
   const glyph = SPINNER_GLYPHS[tick % SPINNER_GLYPHS.length]!;
 
   useEffect(() => {
+    setMounted(true);
     const id = setInterval(() => setTick((t) => t + 1), 150);
     return () => clearInterval(id);
   }, []);
 
-  const elapsedMs = Math.max(0, Date.now() - startedAtMs);
-  const elapsed = formatElapsed(elapsedMs);
+  const elapsed = mounted
+    ? formatElapsed(Math.max(0, Date.now() - startedAtMs))
+    : "—";
   const tokens = formatTokens(outputTokens);
 
   return (

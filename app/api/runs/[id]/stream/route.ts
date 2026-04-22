@@ -106,8 +106,19 @@ export async function GET(req: Request): Promise<Response> {
         console.error("[sse] replay failed", { runId, err });
       }
 
-      // 2. If the run is already finalised, send a final 'end' event and close.
-      if (run.status !== "running") {
+      // 2. If the run is already in a TERMINAL state (completed / failed /
+      //    stopped / cost_killed / interrupted), send end + close. We
+      //    intentionally do NOT treat `awaiting_input` as terminal here:
+      //    a resume is pending and may spawn a new subprocess on this
+      //    same runId. Emitting end here would close the client's ES
+      //    and fragment the single-session UX across chat turns.
+      const isTerminal =
+        run.status === "completed" ||
+        run.status === "failed" ||
+        run.status === "stopped" ||
+        run.status === "cost_killed" ||
+        run.status === "interrupted";
+      if (isTerminal) {
         sendEvent("end", { status: run.status, reason: run.killedReason ?? null });
         closed = true;
         try {

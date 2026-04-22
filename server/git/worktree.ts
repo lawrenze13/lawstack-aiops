@@ -11,7 +11,14 @@ import { Conflict, AppError } from "@/server/lib/errors";
 
 const exec = promisify(execFile);
 
-const BRANCH_PREFIX = "ai/";
+// `<JIRA-KEY>-ai` (suffix, not prefix). Two reasons:
+//   1. The CI code-review workflow extracts the Jira key via the regex
+//      `^[A-Z]+-[0-9]+` anchored at start of branch. A prefixed name
+//      (`ai/MP-389`) doesn't match — the key extraction silently fails
+//      and the Jira transition step is skipped.
+//   2. Still keeps AI-generated branches disambiguated from a human
+//      working directly on `MP-389`.
+const BRANCH_SUFFIX = "-ai";
 
 export type WorktreeInfo = {
   path: string;
@@ -52,7 +59,7 @@ export async function ensureWorktree(taskId: string, jiraKey: string): Promise<W
   }
 
   const wtPath = path.join(env.WORKTREE_ROOT, taskId);
-  const branch = `${BRANCH_PREFIX}${jiraKey}`;
+  const branch = `${jiraKey}${BRANCH_SUFFIX}`;
 
   await preflightBranch(jiraKey, branch);
 

@@ -38,6 +38,7 @@ export function enrichTask(t: {
       | "plan"
       | "review"
       | "pr"
+      | "implement"
       | "done",
     ownerId: t.ownerId,
     runStatus: (currentRun?.status ?? null) as
@@ -47,6 +48,7 @@ export function enrichTask(t: {
       | "stopped"
       | "cost_killed"
       | "interrupted"
+      | "awaiting_input"
       | null,
     costUsd: currentRun ? currentRun.costUsdMicros / 1_000_000 : 0,
     prState: pr?.state ?? null,

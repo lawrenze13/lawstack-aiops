@@ -41,12 +41,17 @@ export function initMeter(
   runId: string,
   model: string,
   caps?: { warnUsd?: number; killUsd?: number },
+  initialCumulativeUsd?: number,
 ): void {
+  const warnUsd = caps?.warnUsd ?? COST_WARN_USD;
+  const initial = initialCumulativeUsd ?? 0;
   meters.set(runId, {
     model,
-    usdCumulative: 0,
-    warned: false,
-    warnUsd: caps?.warnUsd ?? COST_WARN_USD,
+    usdCumulative: initial,
+    // If we're resuming past the warn threshold, skip the warn event so we
+    // don't re-fire it every turn.
+    warned: initial >= warnUsd,
+    warnUsd,
     killUsd: caps?.killUsd ?? COST_KILL_USD,
   });
 }

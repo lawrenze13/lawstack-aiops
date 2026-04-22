@@ -51,3 +51,8 @@ next-env.d.ts
 
 # OS
 Thumbs.db
+
+# Local debug screenshots / pasted images
+/*.png
+/*.jpg
+/*.jpeg

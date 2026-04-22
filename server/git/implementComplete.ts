@@ -10,6 +10,7 @@ import {
   transitionIssueToName,
 } from "@/server/jira/client";
 import { implementCommentDoc } from "@/server/jira/adf";
+import { robustPush } from "@/server/git/push";
 
 const exec = promisify(execFile);
 
@@ -101,23 +102,24 @@ export async function implementComplete(
           { cwd: wt.path },
         );
       }
-      // Push is idempotent when nothing's unpushed.
+      // robustPush handles: idempotent no-op when nothing's unpushed,
+      // missing upstream (-u), and non-fast-forward (fetch + rebase +
+      // retry). The rebase case happens when the remote has advanced
+      // between the agent's last fetch and this final push — common if
+      // a prior Approve run pushed, or implementation was retried from
+      // a stale worktree.
       try {
-        await exec("git", ["push"], { cwd: wt.path });
+        const res = await robustPush(wt.path, pr.branch);
         pushed = true;
-      } catch (pushErr) {
-        // If the remote is ahead or branch upstream is missing, try a
-        // set-upstream push. Fail the step if that also errors.
-        try {
-          await exec("git", ["push", "-u", "origin", pr.branch], { cwd: wt.path });
-          pushed = true;
-        } catch (err) {
-          return {
-            ok: false,
-            failedAt: "safety_push",
-            error: `git push failed: ${(err as Error).message || String(pushErr)}`,
-          };
+        if (res.rebased) {
+          warnings.push("rebased onto origin before push");
         }
+      } catch (err) {
+        return {
+          ok: false,
+          failedAt: "safety_push",
+          error: `git push failed: ${(err as Error).message}`,
+        };
       }
     } catch (err) {
       return {
@@ -125,6 +127,38 @@ export async function implementComplete(
         failedAt: "safety_push",
         error: `commit + push failed: ${(err as Error).message}`,
       };
+    }
+  }
+
+  // ─── Step 1b: undraft the PR ─────────────────────────────────────────
+  // The PR was opened as DRAFT during Approve & PR (planning stage) to
+  // hold the brainstorm/plan/review docs without triggering the CI code
+  // review on doc-only changes. Now that real implementation commits are
+  // pushed, marking the PR ready dispatches a `ready_for_review` event
+  // which the `claude-review` workflow listens for — kicking off the
+  // automated review + Jira transition to "Ready for QA" (or "Failed
+  // Code Review"). Idempotent: `gh pr ready` on a non-draft PR is a
+  // no-op that returns 0.
+  if (wt?.path && !hasPriorAudit(taskId, "pr.marked_ready")) {
+    try {
+      await exec("gh", ["pr", "ready", pr.branch], { cwd: wt.path });
+      audit({
+        action: "pr.marked_ready",
+        taskId,
+        runId,
+        payload: { branch: pr.branch },
+      });
+      // Signal the post-PR review as pending. The UI's ReviewVerdictBadge
+      // polls /api/tasks/:id/check-review and flips to the verdict once
+      // the CI workflow posts its REVIEW_RESULT comment.
+      audit({
+        action: "review.pending",
+        taskId,
+        runId,
+        payload: { branch: pr.branch, prUrl: pr.prUrl },
+      });
+    } catch (err) {
+      warnings.push(`gh pr ready failed: ${(err as Error).message}`);
     }
   }
 

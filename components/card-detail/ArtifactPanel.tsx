@@ -3,7 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 type Artifact = {
-  kind: "brainstorm" | "plan" | "review";
+  kind: "brainstorm" | "plan" | "review" | "implementation";
   filename: string;
   markdown: string;
   isStale: boolean;
@@ -18,6 +18,7 @@ const KIND_LABEL: Record<Artifact["kind"], string> = {
   brainstorm: "Brainstorm",
   plan: "Plan",
   review: "Review",
+  implementation: "Implementation",
 };
 
 /**

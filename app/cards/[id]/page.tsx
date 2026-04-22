@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { asc, eq, desc, and, isNull } from "drizzle-orm";
 import { auth } from "@/server/auth/config";
 import { db } from "@/server/db/client";
-import { artifacts, messages, prRecords, runs, tasks } from "@/server/db/schema";
+import { artifacts, auditLog, messages, prRecords, runs, tasks } from "@/server/db/schema";
 import { RunLog } from "@/components/card-detail/RunLog";
 import { RunStarter } from "@/components/card-detail/RunStarter";
 import { ResumeBanner } from "@/components/card-detail/ResumeBanner";
@@ -16,7 +16,11 @@ import { ArtifactPanel } from "@/components/card-detail/ArtifactPanel";
 import { CardMainTabs } from "@/components/card-detail/CardMainTabs";
 import { DescriptionPanel } from "@/components/card-detail/DescriptionPanel";
 import { ImplementButton } from "@/components/card-detail/ImplementButton";
-import { defaultAgentForLane } from "@/server/agents/registry";
+import { ApproveImplementationButton } from "@/components/card-detail/ApproveImplementationButton";
+import { ReviewVerdictBadge } from "@/components/card-detail/ReviewVerdictBadge";
+import { readReviewState } from "@/server/git/reviewVerdict";
+import { PreviewDevButton } from "@/components/card-detail/PreviewDevButton";
+import { AGENTS, defaultAgentForLane } from "@/server/agents/registry";
 import { env } from "@/server/lib/env";
 
 export const runtime = "nodejs";
@@ -97,6 +101,31 @@ export default async function CardDetailPage({ params }: Props) {
     }
   }
 
+  // Implementation-approval state. The ce:work agent leaves changes
+  // uncommitted; a human clicks "Approve Implementation" to trigger
+  // the server-side commit + push + Jira comment + status transition
+  // + lane→done. Gating:
+  //   - `awaitingApproval`: show the approve button
+  //   - `implementationFinalised`: show the "finalised" chip
+  const latestImplementRun = [...allRuns]
+    .reverse()
+    .find((r) => r.lane === "implement");
+  const implementationFinalised = !!db
+    .select({ id: auditLog.id })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.taskId, id),
+        eq(auditLog.action, "task.implementation_complete"),
+      ),
+    )
+    .limit(1)
+    .get();
+  const awaitingImplementationApproval =
+    !!latestImplementRun &&
+    latestImplementRun.status === "completed" &&
+    !implementationFinalised;
+
   const runSummaries = allRuns.map((r) => ({
     id: r.id,
     lane: r.lane,
@@ -127,17 +156,16 @@ export default async function CardDetailPage({ params }: Props) {
     .where(eq(artifacts.taskId, id))
     .orderBy(desc(artifacts.createdAt))
     .all();
-  const latestArtifactByKind = new Map<
-    "brainstorm" | "plan" | "review",
-    (typeof allArtifacts)[number]
-  >();
+  type ArtifactKind = "brainstorm" | "plan" | "review" | "implementation";
+  const latestArtifactByKind = new Map<ArtifactKind, (typeof allArtifacts)[number]>();
   for (const a of allArtifacts) {
-    if (!latestArtifactByKind.has(a.kind as "brainstorm" | "plan" | "review")) {
-      latestArtifactByKind.set(a.kind as "brainstorm" | "plan" | "review", a);
+    const k = a.kind as ArtifactKind;
+    if (!latestArtifactByKind.has(k)) {
+      latestArtifactByKind.set(k, a);
     }
   }
   const artifactList = Array.from(latestArtifactByKind.values()).map((a) => ({
-    kind: a.kind as "brainstorm" | "plan" | "review",
+    kind: a.kind as ArtifactKind,
     filename: a.filename,
     markdown: a.markdown,
     isStale: a.isStale,
@@ -250,6 +278,20 @@ export default async function CardDetailPage({ params }: Props) {
             runActive={allRuns.some((r) => r.status === "running")}
             canControl={canControl}
           />
+          {awaitingImplementationApproval || implementationFinalised ? (
+            <ApproveImplementationButton
+              taskId={task.id}
+              canControl={canControl}
+              alreadyFinalised={implementationFinalised}
+            />
+          ) : null}
+          <ReviewVerdictBadge
+            taskId={task.id}
+            initial={readReviewState(task.id)}
+          />
+          {env.PREVIEW_DEV_PATH && env.PREVIEW_DEV_URL && prRecordDTO ? (
+            <PreviewDevButton taskId={task.id} canControl={canControl} />
+          ) : null}
           {canControl ? <ArchiveButton taskId={task.id} jiraKey={task.jiraKey} /> : null}
         </div>
       </header>
@@ -278,6 +320,25 @@ export default async function CardDetailPage({ params }: Props) {
           <RunSidebar
             runs={runSummaries}
             currentRunId={currentRun?.id ?? null}
+            taskId={task.id}
+            runActive={allRuns.some(
+              (r) => r.status === "running" || r.status === "awaiting_input",
+            )}
+            agents={Object.values(AGENTS).map((a) => ({
+              id: a.id,
+              name: a.name,
+              // AGENTS declare lanes as narrow subsets ("brainstorm",
+              // "plan", etc.) so the filter below is a noop at runtime —
+              // but the TS predicate carries the constraint through to
+              // NewRunAgentOption's narrower lanes type.
+              lanes: a.lanes.filter(
+                (l): l is "brainstorm" | "plan" | "review" | "implement" =>
+                  l === "brainstorm" ||
+                  l === "plan" ||
+                  l === "review" ||
+                  l === "implement",
+              ),
+            }))}
           />
           <DescriptionPanel
             descriptionMd={task.descriptionMd}
@@ -299,6 +360,9 @@ export default async function CardDetailPage({ params }: Props) {
                 prRecordDTO?.state === "pushed" ||
                 allRuns.some((r) => r.lane === "implement")
               }
+              showShell={!!env.PREVIEW_DEV_ENABLE_SHELL && !!env.PREVIEW_DEV_PATH}
+              shellCwd={env.PREVIEW_DEV_PATH ?? null}
+              shellCanControl={canControl}
               logContent={
                 <div className="flex h-full flex-col">
                   <div className="min-h-0 flex-1">
@@ -337,6 +401,9 @@ export default async function CardDetailPage({ params }: Props) {
                 prRecordDTO?.state === "jira_notified" ||
                 allRuns.some((r) => r.lane === "implement")
               }
+              showShell={!!env.PREVIEW_DEV_ENABLE_SHELL && !!env.PREVIEW_DEV_PATH}
+              shellCwd={env.PREVIEW_DEV_PATH ?? null}
+              shellCanControl={canControl}
               logContent={
                 <p className="p-6 text-sm text-[color:var(--color-muted-foreground)]">
                   No run log yet — but artifacts from a prior session are available in the tabs.

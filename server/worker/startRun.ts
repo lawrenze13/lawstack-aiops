@@ -18,6 +18,7 @@ import { env } from "@/server/lib/env";
 import {
   assignIssue,
   getIssueAssignee,
+  getIssueComments,
   getMyself,
   transitionIssueToName,
 } from "@/server/jira/client";
@@ -57,6 +58,12 @@ export type StartRunParams = {
    * the prompt contract, not by the permission machinery.
    */
   interactive?: boolean;
+  /**
+   * Free-form text appended to the built-in agent prompt. Lets the user
+   * steer a specific run ("focus on the migration files", "skip the
+   * styling pass", etc.) without forking the agent definition.
+   */
+  additionalPrompt?: string;
 };
 
 export type StartRunResult = {
@@ -135,6 +142,13 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
   // failures don't block the run.
   const recentCommits = await getRecentCommits(worktree.path);
 
+  // Pull Jira comments fresh on every run so new stakeholder replies
+  // since the ticket was created make it into the agent's context.
+  // Comments live where bug reproducers + clarifying questions end up,
+  // so feeding them to brainstorm/plan/review is high-leverage.
+  // Returns [] on missing creds / network failure — non-fatal.
+  const jiraComments = await getIssueComments(task.jiraKey);
+
   // Prior-review count for Review prompt iteration awareness. Counting
   // artifact rows (not runs) gives the number of complete review passes
   // regardless of retries / stops.
@@ -151,14 +165,25 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
     priorArtifacts: priorArtifacts.map((a) => ({ kind: a.kind, markdown: a.markdown })),
     recentCommits,
     priorReviewCount,
+    jiraComments,
     interactive: params.interactive ?? false,
   };
 
-  const prompt = params.overridePrompt
+  let prompt = params.overridePrompt
     ? params.overridePrompt
     : params.amendFromReview
       ? buildAmendPlanPrompt(promptContext)
       : agent.buildPrompt(promptContext);
+
+  // Append any user-supplied steering text to the tail of the prompt so
+  // it reads as an overlay on the default contract rather than replacing
+  // it. `overridePrompt` (chat-resume path) already carries the full
+  // operator message — skip the append there.
+  if (!params.overridePrompt && params.additionalPrompt?.trim()) {
+    prompt +=
+      "\n\n## Extra instructions from the operator\n\n" +
+      params.additionalPrompt.trim();
+  }
 
   const runId = randomUUID();
   const freshSessionId = randomUUID();

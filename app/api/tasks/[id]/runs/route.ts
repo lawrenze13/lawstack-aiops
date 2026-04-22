@@ -17,6 +17,8 @@ const Body = z.object({
   amendFromReview: z.boolean().optional(),
   /** When true and lane==='implement', agent pauses before each Bash. */
   interactive: z.boolean().optional(),
+  /** Free-form extra instructions appended to the agent's built-in prompt. */
+  additionalPrompt: z.string().trim().max(4000).optional(),
 });
 
 export const POST = withAuth(async ({ req, user }) => {
@@ -39,6 +41,7 @@ export const POST = withAuth(async ({ req, user }) => {
     resumeSessionId: body.resumeSessionId,
     amendFromReview: body.amendFromReview,
     interactive: body.interactive,
+    additionalPrompt: body.additionalPrompt,
     initiator: { userId: user.id, kind: "user" },
   });
 

@@ -132,6 +132,61 @@ export async function getIssue(key: string): Promise<JiraIssueLite | null> {
   return JiraIssueLite.parse(json);
 }
 
+export type JiraComment = {
+  id: string;
+  author: string;
+  created: string;
+  /** Plain-text rendering of the ADF body. */
+  body: string;
+};
+
+const IssueCommentsResponse = z.object({
+  comments: z.array(
+    z.object({
+      id: z.string(),
+      body: z.unknown().optional(),
+      author: z
+        .object({
+          displayName: z.string().optional(),
+          emailAddress: z.string().optional(),
+        })
+        .optional(),
+      created: z.string().optional(),
+      updated: z.string().optional(),
+    }),
+  ),
+  total: z.number().optional(),
+});
+
+/**
+ * Fetch comments on a Jira issue (oldest-first). Empty array if Jira isn't
+ * configured or the call fails — comments are augmenting context, never
+ * load-bearing, so we degrade quietly.
+ */
+export async function getIssueComments(
+  key: string,
+  limit = 50,
+): Promise<JiraComment[]> {
+  if (!env.JIRA_BASE_URL || !env.JIRA_EMAIL || !env.JIRA_API_TOKEN) return [];
+  const { adfToPlainText } = await import("./adf");
+  try {
+    const res = await jiraFetch(
+      `/rest/api/3/issue/${encodeURIComponent(key)}/comment?maxResults=${limit}&orderBy=created`,
+    );
+    if (!res.ok) return [];
+    const json = await res.json();
+    const parsed = IssueCommentsResponse.parse(json);
+    return parsed.comments.map((c) => ({
+      id: c.id,
+      author: c.author?.displayName ?? c.author?.emailAddress ?? "unknown",
+      created: c.created ?? "",
+      body: adfToPlainText(c.body).trim(),
+    }));
+  } catch {
+    return [];
+  }
+}
+
 /** Post a comment with an ADF body. Returns the comment id (used for idempotency). */
 export async function postComment(key: string, body: AdfDocument): Promise<string> {
   const res = await jiraFetch(`/rest/api/3/issue/${encodeURIComponent(key)}/comment`, {

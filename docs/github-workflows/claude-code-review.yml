@@ -1,0 +1,244 @@
+# =============================================================================
+# Belongs in the TARGET repo (e.g. Hosted-Network/multiportal), not in
+# multiportal-ai-ops. Copy this file to
+# `.github/workflows/claude-code-review.yml` in the repo whose PRs should be
+# auto-reviewed.
+#
+# Changes from the prior version:
+#   1. `if: github.event.pull_request.draft == false` at job level — the
+#      orchestrator opens PRs as DRAFT to hold brainstorm/plan/review docs
+#      without triggering the Claude review. When the implementation is
+#      approved in the orchestrator, it calls `gh pr ready` which dispatches
+#      the `ready_for_review` event (already in `types:`), and THIS job then
+#      runs against the PR with real code in it.
+#
+# Required repo secrets:
+#   CLAUDE_CODE_OAUTH_TOKEN   Anthropic API token for the review bot
+#   JIRA_BASE_URL             https://<yourco>.atlassian.net
+#   JIRA_USER_EMAIL           Service account email
+#   JIRA_API_TOKEN            Service account API token
+# =============================================================================
+
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+jobs:
+  claude-review:
+    # Skip the review + Jira transition on DRAFT PRs. A draft PR at this
+    # point carries only planning docs (brainstorm / plan / review) —
+    # there's no code to review yet. The orchestrator undrafts the PR
+    # after Implement is approved, which fires a `ready_for_review` event
+    # and runs this job on the real code.
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          track_progress: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Perform a comprehensive code review with the following focus areas:
+
+            1. **Code Quality** - Clean code, error handling, readability
+            2. **Security** - Vulnerabilities, input sanitization, auth logic
+            3. **Performance** - Bottlenecks, query efficiency, resource usage
+            4. **Testing** - Test coverage and quality
+            5. **Best Practices** - Framework conventions (Yii2/PHP), naming, patterns
+
+            Provide detailed feedback using inline comments for specific issues.
+            Use a top-level comment for a summary and overall assessment.
+
+            **IMPORTANT**: At the very end of your review summary comment, include a result line in
+            exactly this format (on its own line, with no other text on that line):
+
+            REVIEW_RESULT: <verdict>
+
+            Where <verdict> is one of:
+            - `P1` — if you found any P1 (critical/blocking) issues
+            - `P2_BLOCKER` — if you found P2 issues that are blockers (no P1 issues)
+            - `PASS` — if you found only P2 non-blocker warnings, P3 issues, or no issues
+
+            If the result is P1 or P2_BLOCKER, also include a blockers section immediately after,
+            in exactly this format:
+
+            REVIEW_BLOCKERS_START
+            • <brief description of blocking issue 1>
+            • <brief description of blocking issue 2>
+            REVIEW_BLOCKERS_END
+
+          claude_args: '--allowedTools "mcp__github_comment__update_claude_comment,mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(echo *)"'
+
+      - name: Update Jira ticket status
+        if: always()
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          BRANCH_NAME: ${{ github.head_ref }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Extract Jira ticket ID from branch name. Matches at the START so
+          # both human branches (`MP-1234-some-description`) and orchestrator
+          # branches (`MP-1234-ai`) resolve to the same ticket key `MP-1234`.
+          JIRA_TICKET=$(echo "$BRANCH_NAME" | grep -oE '^[A-Z]+-[0-9]+')
+
+          if [ -z "$JIRA_TICKET" ]; then
+            echo "No Jira ticket found in branch name '$BRANCH_NAME', skipping."
+            exit 0
+          fi
+
+          echo "Jira ticket: $JIRA_TICKET"
+
+          # Parse Claude's review result from PR comments (not /tmp files which don't persist across steps)
+          COMMENTS=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate -q '.[].body')
+
+          RESULT=$(echo "$COMMENTS" | grep -oP '(?<=REVIEW_RESULT: )(P1|P2_BLOCKER|PASS)' | tail -1)
+
+          if [ -z "$RESULT" ]; then
+            echo "::warning::Could not find REVIEW_RESULT in PR comments. Skipping Jira transition."
+            exit 0
+          fi
+
+          echo "Review result: $RESULT"
+
+          # Determine target Jira status
+          if [ "$RESULT" = "P1" ] || [ "$RESULT" = "P2_BLOCKER" ]; then
+            TARGET_STATUS="Failed Code Review"
+            FAILED=true
+          else
+            TARGET_STATUS="Ready for QA"
+            FAILED=false
+          fi
+
+          echo "Transitioning $JIRA_TICKET to: $TARGET_STATUS"
+
+          # Get available transitions for the ticket
+          TRANSITIONS=$(curl -s \
+            -u "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$JIRA_TICKET/transitions")
+
+          # Find the transition ID matching our target status
+          TRANSITION_ID=$(echo "$TRANSITIONS" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          target = sys.argv[1].lower()
+          for t in data.get('transitions', []):
+              if t['to']['name'].lower() == target:
+                  print(t['id'])
+                  break
+          " "$TARGET_STATUS")
+
+          if [ -z "$TRANSITION_ID" ]; then
+            echo "Could not find transition to '$TARGET_STATUS' for $JIRA_TICKET."
+            echo "Available transitions:"
+            echo "$TRANSITIONS" | python3 -c "import json,sys; [print(f\"  - {t['to']['name']} (id: {t['id']})\") for t in json.load(sys.stdin).get('transitions',[])]"
+            exit 1
+          fi
+
+          echo "Transition ID: $TRANSITION_ID"
+
+          # Perform the transition
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST \
+            -u "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "{\"transition\": {\"id\": \"$TRANSITION_ID\"}}" \
+            "$JIRA_BASE_URL/rest/api/3/issue/$JIRA_TICKET/transitions")
+
+          if [ "$HTTP_STATUS" = "204" ]; then
+            echo "Successfully transitioned $JIRA_TICKET to '$TARGET_STATUS'."
+          else
+            echo "Transition failed with HTTP $HTTP_STATUS."
+            exit 1
+          fi
+
+          # If failed, post a comment to Jira with PR link and blocking issues summary
+          if [ "$FAILED" = "true" ]; then
+            # Extract blocker summary from PR comments (between REVIEW_BLOCKERS_START and REVIEW_BLOCKERS_END)
+            BLOCKERS=$(echo "$COMMENTS" | sed -n '/REVIEW_BLOCKERS_START/,/REVIEW_BLOCKERS_END/{//d;p}' | tail -20)
+            if [ -z "$BLOCKERS" ]; then
+              BLOCKERS="See the PR review for details."
+            fi
+
+            SEVERITY_LABEL=$([ "$RESULT" = "P1" ] && echo "P1 - Critical" || echo "P2 - Blocker")
+
+            COMMENT_BODY=$(python3 -c "
+          import json, sys
+          severity = sys.argv[1]
+          pr_url = sys.argv[2]
+          pr_title = sys.argv[3]
+          blockers = sys.argv[4]
+
+          body = {
+            'body': {
+              'type': 'doc',
+              'version': 1,
+              'content': [
+                {
+                  'type': 'paragraph',
+                  'content': [
+                    {'type': 'text', 'text': '🚫 Code Review Failed (', 'marks': [{'type': 'strong'}]},
+                    {'type': 'text', 'text': severity, 'marks': [{'type': 'strong'}]},
+                    {'type': 'text', 'text': ')', 'marks': [{'type': 'strong'}]}
+                  ]
+                },
+                {
+                  'type': 'paragraph',
+                  'content': [
+                    {'type': 'text', 'text': 'PR: '},
+                    {'type': 'text', 'text': pr_title + ' ', 'marks': [{'type': 'strong'}]},
+                    {'type': 'inlineCard', 'attrs': {'url': pr_url}}
+                  ]
+                },
+                {
+                  'type': 'paragraph',
+                  'content': [
+                    {'type': 'text', 'text': 'Blocking issues that must be resolved:', 'marks': [{'type': 'strong'}]}
+                  ]
+                },
+                {
+                  'type': 'paragraph',
+                  'content': [{'type': 'text', 'text': blockers}]
+                }
+              ]
+            }
+          }
+          print(json.dumps(body))
+          " "$SEVERITY_LABEL" "$PR_URL" "$PR_TITLE" "$BLOCKERS")
+
+            COMMENT_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              -X POST \
+              -u "$JIRA_USER_EMAIL:$JIRA_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$COMMENT_BODY" \
+              "$JIRA_BASE_URL/rest/api/3/issue/$JIRA_TICKET/comment")
+
+            if [ "$COMMENT_STATUS" = "201" ]; then
+              echo "Posted blocking issues comment to $JIRA_TICKET."
+            else
+              echo "Failed to post comment (HTTP $COMMENT_STATUS), but transition succeeded."
+            fi
+          fi

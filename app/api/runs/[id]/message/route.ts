@@ -11,11 +11,9 @@ import {
 import { db } from "@/server/db/client";
 import { runs, tasks } from "@/server/db/schema";
 import { audit } from "@/server/auth/audit";
-import { runRegistry } from "@/server/worker/runRegistry";
-import { startRun } from "@/server/worker/startRun";
+import { resumeRun } from "@/server/worker/resumeRun";
 import { withRunLock } from "@/server/worker/chatMutex";
 import { rateLimit } from "@/server/lib/rateLimit";
-import type { Lane } from "@/server/agents/registry";
 
 export const runtime = "nodejs";
 
@@ -65,28 +63,20 @@ export const POST = withAuth(async ({ req, user }) => {
       throw new Forbidden("only the card owner or an admin can chat on this run");
     }
 
-    // You can only chat on a finalised run. If it's still streaming, the user
-    // must Stop first (or wait). This avoids the "concurrent --resume" race
-    // and matches the pause/resume pattern in ticket-worker.sh.
-    if (runRegistry.has(runId)) {
+    // Gate on DB status, NOT on registry presence. During the 10s NEEDS_INPUT
+    // grace window the registry still has the subprocess handle (it's draining
+    // gracefully), but status is already 'awaiting_input' and the user should
+    // be able to reply. resumeRun handles the drain — it stops the old child
+    // and awaits its exit before spawning the new one.
+    if (run.status === "running") {
       throw new Conflict("run is still streaming; click Stop first or wait for completion");
     }
-    if (run.status === "running") {
-      // DB says running but registry doesn't have it — orphan (should be rare
-      // post-reconciler). Treat as blocked; user can click Resume.
-      throw new Conflict("run is marked running but no live subprocess; click Resume instead");
-    }
 
-    const result = await startRun({
-      taskId: run.taskId,
-      lane: run.lane as Lane,
-      agentId: run.agentId,
-      resumeSessionId: run.claudeSessionId,
-      overridePrompt: body.text,
+    const result = await resumeRun({
+      runId,
+      prompt: body.text,
       displayUserMessage: body.text,
       initiator: { userId: user.id, kind: "user" },
-      // Chat messages must land even if they arrive quickly.
-      bypassIdempotency: true,
     });
 
     audit({
@@ -95,12 +85,11 @@ export const POST = withAuth(async ({ req, user }) => {
       taskId: run.taskId,
       runId: result.runId,
       payload: {
-        parentRunId: runId,
         textPreview: body.text.slice(0, 80),
         clientRequestId: body.clientRequestId ?? null,
       },
     });
 
-    return { runId: result.runId, parentRunId: runId };
+    return { runId: result.runId };
   });
 });

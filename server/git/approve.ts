@@ -8,6 +8,7 @@ import { artifacts, prRecords, tasks, worktrees } from "@/server/db/schema";
 import { env } from "@/server/lib/env";
 import { audit } from "@/server/auth/audit";
 import { postComment } from "@/server/jira/client";
+import { robustPush } from "@/server/git/push";
 import { prCommentDoc } from "@/server/jira/adf";
 import { AppError, BadRequest, Conflict, NotFound } from "@/server/lib/errors";
 
@@ -173,7 +174,11 @@ export async function approveAndPr(
   // ─── Step 3: git push ────────────────────────────────────────────────
   try {
     if (stepIsPending(record.state, "pushed")) {
-      await exec("git", ["push", "-u", "origin", branch], { cwd: wt.path });
+      // robustPush handles non-fast-forward (rebase onto origin then retry)
+      // and missing upstream (-u). Plain `git push` rejected the earlier
+      // cases with "non-fast-forward" because a prior Approve run had
+      // already advanced the remote; rebasing incorporates those commits.
+      await robustPush(wt.path, branch);
       db.update(prRecords)
         .set({ state: "pushed", updatedAt: new Date() })
         .where(eq(prRecords.taskId, taskId))

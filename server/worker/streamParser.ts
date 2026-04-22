@@ -109,16 +109,31 @@ function parseAssistant(raw: Record<string, unknown>): ParsedEvent {
     hint.toolInputSummary = summariseToolInput(t.name, t.input);
   }
 
-  // Mid-stream NEEDS_INPUT detection: if any text block starts with the
-  // marker, surface the question. spawnAgent will flip the run to
-  // awaiting_input and kill the subprocess so the user can reply via chat.
-  // Match leading whitespace + optional bold/italic wrappers Claude
-  // sometimes adds.
-  const needsMatch = joinedText.match(
-    /(?:^|\n)\s*(?:\*\*|__)?NEEDS_INPUT(?:\*\*|__)?\s*:\s*([\s\S]*?)(?:\n\n(?:##|$)|$)/,
-  );
-  if (needsMatch && needsMatch[1]) {
-    hint.needsInputQuestion = needsMatch[1].trim();
+  // Mid-stream NEEDS_INPUT detection: capture from the marker to the end
+  // of the joined text. The agent's prompt contract says to emit the
+  // marker and STOP, so whatever follows IS the question. Earlier
+  // versions used a lazy match with a fragile `\n\n##|$` terminator that
+  // silently truncated multi-paragraph questions. This is blunter on
+  // purpose — false positives are cheap (the user sees the real
+  // question), false negatives (missing the banner entirely) are what
+  // make the flow feel "glitchy".
+  //
+  // Accepts: `NEEDS_INPUT:`, `**NEEDS_INPUT**:`, `**NEEDS_INPUT:**`,
+  // `__NEEDS_INPUT__:`, lowercase, with or without leading whitespace.
+  // Rejects the marker embedded inside a word (requires word boundary
+  // on the left — hence the `(?:^|[\s\n])` prefix). The optional bold
+  // wrappers can appear either BEFORE the colon or AFTER it, since
+  // Claude emits both forms.
+  const markerRe =
+    /(?:^|[\s\n])(?:\*\*|__)?NEEDS_INPUT(?:\*\*|__)?\s*:\s*(?:\*\*|__)?\s*/i;
+  const markerMatch = markerRe.exec(joinedText);
+  if (markerMatch) {
+    const after = joinedText.slice(markerMatch.index + markerMatch[0].length).trim();
+    if (after.length > 0) {
+      // Strip a trailing code fence if the agent accidentally wrapped
+      // the question in ``` despite the prompt. Pure cosmetic.
+      hint.needsInputQuestion = after.replace(/\s*```\s*$/, "").trim();
+    }
   }
 
   return { type: "assistant", payload: raw, hint };

@@ -5,7 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 type Props = {
-  kind: "brainstorm" | "plan" | "review";
+  kind: "brainstorm" | "plan" | "review" | "implementation";
   filename: string;
   markdown: string;
   isStale: boolean;

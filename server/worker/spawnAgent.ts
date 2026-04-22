@@ -13,6 +13,7 @@ import {
   initMeter,
   observeAssistantUsage,
 } from "./costMeter";
+import { decideExitStatus } from "./exitStatus";
 
 export type SpawnAgentParams = {
   runId: string;
@@ -34,6 +35,12 @@ export type SpawnAgentParams = {
   costKillUsd?: number;
   /** --permission-mode passed to the Claude CLI. Default 'acceptEdits'. */
   permissionMode?: "acceptEdits" | "bypassPermissions";
+  /**
+   * Pre-existing cumulative cost to carry into the meter (chat resume).
+   * Without this the new subprocess's meter would start at $0 and could
+   * blow past the kill cap while the stored DB total is already higher.
+   */
+  initialCumulativeCostUsd?: number;
 };
 
 const KILL_GRACE_MS = 5000;
@@ -134,10 +141,12 @@ export function spawnAgent(p: SpawnAgentParams): void {
     stop,
   });
 
-  initMeter(p.runId, p.model, {
-    warnUsd: p.costWarnUsd,
-    killUsd: p.costKillUsd,
-  });
+  initMeter(
+    p.runId,
+    p.model,
+    { warnUsd: p.costWarnUsd, killUsd: p.costKillUsd },
+    p.initialCumulativeCostUsd,
+  );
 
   // Prepared statements — hot-path inserts.
   const insertMsg = sqlite.prepare(
@@ -221,9 +230,14 @@ export function spawnAgent(p: SpawnAgentParams): void {
       } catch {
         // ignore
       }
-      // SIGTERM the child; finalize will keep status='awaiting_input'
-      // because needsInputQuestion is set.
-      stop("user");
+      // Let the agent end its turn naturally — its prompt contract says
+      // to emit NEEDS_INPUT and STOP. In the common case the `result`
+      // event fires a few hundred ms later and the child exits 0. If the
+      // agent ignores the contract and keeps tool-calling, SIGTERM as a
+      // safety net so we don't burn tokens while the user is thinking.
+      setTimeout(() => {
+        if (!child.killed) stop("user");
+      }, 10_000).unref();
     }
 
     // Cost meter — observe assistant usage blocks, may warn or hard-kill.
@@ -300,12 +314,12 @@ export function spawnAgent(p: SpawnAgentParams): void {
   child.on("exit", (code, signal) => {
     persistAndEmit("server", { kind: "exit", code, signal });
     let status = decideExitStatus(code, signal, lastStopReason);
-    // NEEDS_INPUT: agent signalled a clarification request. Override
-    // completed/stopped → awaiting_input so the UI shows the chat-to-
-    // answer flow instead of a terminal state. (stopped is what we land
-    // on if NEEDS_INPUT was mid-stream and we SIGTERM'd; completed is
-    // what we land on if NEEDS_INPUT was in the final result text.)
-    if (needsInputQuestion && (status === "completed" || status === "stopped")) {
+    // NEEDS_INPUT: agent signalled a clarification request. Override any
+    // non-cost-capped terminal state → awaiting_input so the UI shows the
+    // chat-to-answer flow. Covers: completed (NEEDS_INPUT in final
+    // result text), stopped (mid-stream SIGTERM), and failed (child
+    // trapped SIGTERM and exited with 143).
+    if (needsInputQuestion && status !== "cost_killed") {
       status = "awaiting_input";
     }
     const reasonTag = lastStopReason ? `${lastStopReason}:` : "";
@@ -320,16 +334,8 @@ export function spawnAgent(p: SpawnAgentParams): void {
   void sql; // silence unused-import in some configs
 }
 
-function decideExitStatus(
-  code: number | null,
-  signal: NodeJS.Signals | null,
-  stopReason?: StopReason,
-): "completed" | "failed" | "stopped" | "cost_killed" | "awaiting_input" {
-  if (stopReason === "cost_cap") return "cost_killed";
-  if (signal === "SIGTERM" || signal === "SIGKILL") return "stopped";
-  if (code === 0) return "completed";
-  return "failed";
-}
+// decideExitStatus lives in ./exitStatus.ts — it's pure, has no DB
+// imports, and is unit-tested independently.
 
 async function finalize(
   runId: string,
@@ -342,8 +348,10 @@ async function finalize(
     | "awaiting_input",
   reason: string,
 ): Promise<void> {
-  const handle = runRegistry.get(runId);
-  if (handle) runRegistry.delete(runId);
+  // NOTE: keep the runRegistry entry alive until AFTER we've written the
+  // final DB status. resumeRun's waitForExit() polls the registry, so if
+  // we delete early it would return while the DB still says 'running',
+  // causing the resume's status check to see stale data and reject.
   clearMeter(runId);
 
   try {
@@ -396,12 +404,11 @@ async function finalize(
     console.error("[spawnAgent] finalize update failed", { runId, err });
   }
 
-  // Emit one last bus event so any connected SSE clients can show the
-  // finalised state, then keep the bus alive briefly for late subscribers
-  // (replay covers anything missed).
-  const bus = getRunBus(runId);
-  bus.emit("end", { type: "end", status, reason });
-  setTimeout(() => closeRunBus(runId), 5000).unref();
+  // Registry entry goes LAST, after the DB write is durable. resumeRun's
+  // waitForExit() uses `runRegistry.has(runId)` as the completion signal,
+  // so clearing it only here guarantees subsequent readers see fresh DB
+  // status (not the stale 'running' from before finalize).
+  runRegistry.delete(runId);
 
   audit({ action: "run.finalized", runId, payload: { status, reason } });
 
@@ -438,9 +445,12 @@ async function finalize(
       console.error("[spawnAgent] amend comment failed", { runId, err });
     }
 
-    // Implement-lane completion → run the 5-step finalisation
-    // (safety push + Jira comment + status transition + lane to done).
-    // Skipped for other lanes and for non-completed statuses.
+    // Implement-lane completion is HUMAN-GATED — the agent stops with
+    // uncommitted changes in the worktree and a summary, then the user
+    // reviews + clicks "Approve Implementation" (POST /api/tasks/:id/
+    // approve-implementation) which runs the 5-step finalisation.
+    // We just record a signal audit row here so the UI can show the
+    // button, and leave the task on the 'implement' lane.
     try {
       const run = db
         .select({ taskId: runs.taskId, lane: runs.lane })
@@ -448,33 +458,15 @@ async function finalize(
         .where(eq(runs.id, runId))
         .get();
       if (run?.lane === "implement") {
-        const { implementComplete } = await import("@/server/git/implementComplete");
-        const result = await implementComplete(runId, run.taskId);
-        if (!result.ok) {
-          // Persist the failure as a server event so the RunLog surfaces
-          // it. The task stays at 'implement' lane (no rollback needed;
-          // implementComplete only moves lane to 'done' on success).
-          const bus = getRunBus(runId);
-          bus.emit("event", {
-            seq: 0,
-            type: "server",
-            payload: {
-              kind: "implement_finalisation_error",
-              failedAt: result.failedAt,
-              error: result.error,
-            },
-          });
-          audit({
-            action: "implement.finalisation_failed",
-            taskId: run.taskId,
-            runId,
-            payload: { failedAt: result.failedAt, error: result.error },
-          });
-        }
+        audit({
+          action: "implement.awaiting_approval",
+          taskId: run.taskId,
+          runId,
+        });
       }
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.error("[spawnAgent] implementComplete failed", { runId, err });
+      console.error("[spawnAgent] implement awaiting-approval audit failed", { runId, err });
     }
 
     try {
@@ -484,5 +476,20 @@ async function finalize(
       // eslint-disable-next-line no-console
       console.error("[spawnAgent] auto-advance dispatch failed", { runId, err });
     }
+  }
+
+  // Emit the terminal bus event LAST — after artifact persistence, any
+  // Jira comment, implementComplete signalling, and maybeAutoAdvance
+  // have all finished. The client's router.refresh() fires on this
+  // event, and it must see tasks.currentRunId already pointing at the
+  // newly spawned next-lane run. Otherwise the UI stays on the just-
+  // completed run and feels "stuck".
+  //
+  // `awaiting_input` is NOT terminal — skip, so the client's SSE stays
+  // open across chat turns.
+  if (status !== "awaiting_input") {
+    const bus = getRunBus(runId);
+    bus.emit("end", { type: "end", status, reason });
+    setTimeout(() => closeRunBus(runId), 5000).unref();
   }
 }

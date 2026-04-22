@@ -1,5 +1,7 @@
 "use client";
 
+import { NewRunButton, type NewRunAgentOption } from "./NewRunButton";
+
 export type RunSummary = {
   id: string;
   lane: string;
@@ -13,6 +15,12 @@ export type RunSummary = {
 type Props = {
   runs: RunSummary[];
   currentRunId: string | null;
+  /** Used by the "+ New Run" button — gated on this + runActive. */
+  taskId: string;
+  /** True when any run for this task is running/awaiting_input. */
+  runActive: boolean;
+  /** Agents the operator can dispatch from here. */
+  agents: NewRunAgentOption[];
 };
 
 /**
@@ -21,14 +29,23 @@ type Props = {
  * scroll is smooth and uses the native anchor behavior — no JS beyond the
  * href so it keeps working if the client bundle is slow.
  */
-export function RunSidebar({ runs, currentRunId }: Props) {
+export function RunSidebar({
+  runs,
+  currentRunId,
+  taskId,
+  runActive,
+  agents,
+}: Props) {
   return (
     <div className="flex-1 overflow-y-auto rounded-lg border border-[color:var(--color-border)] p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <h2 className="text-sm font-semibold">Runs</h2>
-        <span className="text-[10px] text-[color:var(--color-muted-foreground)]">
-          {runs.length}
-        </span>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold">Runs</h2>
+          <span className="text-[10px] text-[color:var(--color-muted-foreground)]">
+            {runs.length}
+          </span>
+        </div>
+        <NewRunButton taskId={taskId} runActive={runActive} agents={agents} />
       </div>
 
       {runs.length === 0 ? (
