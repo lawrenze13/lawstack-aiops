@@ -498,12 +498,12 @@ surfaces only the 3 knobs per agent.
 
 ### Phase 6: Settings-drift banner (0.5 day)
 
-- [ ] `components/admin/SettingsDriftBanner.tsx` — server component,
+- [x] `components/admin/SettingsDriftBanner.tsx` — server component,
       renders on authenticated routes.
-- [ ] Non-admin maintenance page when required settings are missing.
-- [ ] Unit tests: drift detection ignores fields present in either
+- [x] Non-admin maintenance page when required settings are missing.
+- [x] Unit tests: drift detection ignores fields present in either
       settings or env.
-- [ ] Exit gate: add a new field to SETTINGS without data → banner
+- [x] Exit gate: add a new field to SETTINGS without data → banner
       appears for admin, maintenance page for others.
 
 ### Phase 7: Install validation (0.5 day)

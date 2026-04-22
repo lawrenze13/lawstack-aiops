@@ -4,14 +4,16 @@ import { tasks } from "@/server/db/schema";
 import { desc, ne } from "drizzle-orm";
 import { Board } from "@/components/board/Board";
 import { enrichTask } from "@/server/lib/enrichTask";
+import { SettingsDriftBanner } from "@/components/admin/SettingsDriftBanner";
+import { MaintenanceGate } from "@/components/admin/MaintenanceGate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export default async function TeamBoardPage() {
   const session = await auth();
-  const isAdmin =
-    (session?.user as { role?: string } | undefined)?.role === "admin";
+  const role = (session?.user as { role?: string } | undefined)?.role;
+  const isAdmin = role === "admin";
 
   const rows = db
     .select({
@@ -28,5 +30,10 @@ export default async function TeamBoardPage() {
     .all();
 
   const enriched = rows.map((t) => enrichTask(t));
-  return <Board initialTasks={enriched} scope="all" isAdmin={isAdmin} />;
+  return (
+    <MaintenanceGate role={role}>
+      <SettingsDriftBanner role={role} />
+      <Board initialTasks={enriched} scope="all" isAdmin={isAdmin} />
+    </MaintenanceGate>
+  );
 }

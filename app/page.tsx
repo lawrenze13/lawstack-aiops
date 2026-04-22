@@ -4,6 +4,8 @@ import { tasks } from "@/server/db/schema";
 import { and, desc, eq, ne } from "drizzle-orm";
 import { Board } from "@/components/board/Board";
 import { enrichTask } from "@/server/lib/enrichTask";
+import { SettingsDriftBanner } from "@/components/admin/SettingsDriftBanner";
+import { MaintenanceGate } from "@/components/admin/MaintenanceGate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,6 +16,7 @@ export default async function HomePage() {
   const userId = user?.id;
   if (!userId) return null;
   const isAdmin = user?.role === "admin";
+  const role = user?.role;
 
   const rows = db
     .select({
@@ -29,5 +32,10 @@ export default async function HomePage() {
     .orderBy(desc(tasks.updatedAt))
     .all();
 
-  return <Board initialTasks={rows.map(enrichTask)} scope="me" isAdmin={isAdmin} />;
+  return (
+    <MaintenanceGate role={role}>
+      <SettingsDriftBanner role={role} />
+      <Board initialTasks={rows.map(enrichTask)} scope="me" isAdmin={isAdmin} />
+    </MaintenanceGate>
+  );
 }

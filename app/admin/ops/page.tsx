@@ -23,6 +23,7 @@ import { auditLog, runs, tasks, worktrees } from "@/server/db/schema";
 import { env } from "@/server/lib/env";
 import { KillRunButton } from "./KillRunButton";
 import { AutoRefresh } from "./AutoRefresh";
+import { SettingsDriftBanner } from "@/components/admin/SettingsDriftBanner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -141,6 +142,8 @@ export default async function AdminOpsPage() {
   );
 
   return (
+    <>
+    <SettingsDriftBanner role={user.role} />
     <main className="flex min-h-screen flex-col">
       <header className="border-b border-[color:var(--border)] px-6 py-3">
         <div className="flex items-center justify-between">
@@ -299,6 +302,7 @@ export default async function AdminOpsPage() {
         </Panel>
       </section>
     </main>
+    </>
   );
 }
 

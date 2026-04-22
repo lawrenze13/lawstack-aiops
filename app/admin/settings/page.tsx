@@ -4,6 +4,7 @@ import { auth } from "@/server/auth/config";
 import { SETTINGS } from "@/server/lib/settingsSchema";
 import { getConfig } from "@/server/lib/config";
 import { SettingsSectionForm } from "@/components/admin/SettingsSectionForm";
+import { SettingsDriftBanner } from "@/components/admin/SettingsDriftBanner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,7 +40,9 @@ export default async function AdminSettingsPage() {
   }
 
   return (
-    <main className="mx-auto max-w-4xl p-6">
+    <>
+      <SettingsDriftBanner role={user.role} />
+      <main className="mx-auto max-w-4xl p-6">
       <header className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">Settings</h1>
@@ -66,5 +69,6 @@ export default async function AdminSettingsPage() {
         ))}
       </div>
     </main>
+    </>
   );
 }
