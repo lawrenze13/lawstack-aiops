@@ -13,6 +13,10 @@ type TestResult = {
 };
 
 type Props = {
+  /**
+   * When non-empty, hits /api/setup/test/:id?token=TOKEN (wizard).
+   * When empty, hits /api/admin/settings/test/:id (admin page).
+   */
   token: string;
   test: NonNullable<SettingSection["test"]>;
   /** Current unsaved form values — fed to the test payload. */
@@ -32,16 +36,16 @@ export function StepTest({ token, test, values, onResult }: Props) {
   const run = () => {
     const payload: Record<string, unknown> = {};
     for (const key of test.requires) payload[key] = values[key];
+    const url = token
+      ? `/api/setup/test/${test.id}?token=${encodeURIComponent(token)}`
+      : `/api/admin/settings/test/${test.id}`;
     start(async () => {
       try {
-        const res = await fetch(
-          `/api/setup/test/${test.id}?token=${encodeURIComponent(token)}`,
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(payload),
-          },
-        );
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        });
         const json = (await res.json()) as TestResult;
         setResult(json);
         onResult(json);

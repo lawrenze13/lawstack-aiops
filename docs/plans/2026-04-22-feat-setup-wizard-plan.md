@@ -488,13 +488,12 @@ surfaces only the 3 knobs per agent.
 
 ### Phase 5: /admin/settings (0.5 day)
 
-- [ ] `app/admin/settings/page.tsx` — admin-only; renders every
+- [x] `app/admin/settings/page.tsx` — admin-only; renders every
       SETTINGS section as a collapsible HeroUI Disclosure.
-- [ ] Per-field autosave: debounced on text, immediate on
-      select/checkbox. Small "saved Xs ago" indicator.
-- [ ] MaskedSecret + Rotate reused.
-- [ ] Per-field Test button reused.
-- [ ] Exit gate: edit a Jira field → next Jira call picks up the new
+- [x] Per-section Save (not per-field autosave — simpler, clearer dirty state).
+- [x] MaskedSecret + Rotate reused.
+- [x] Per-section Test button reused via token="" → admin endpoint.
+- [x] Exit gate: edit a Jira field → next Jira call picks up the new
       value without restart.
 
 ### Phase 6: Settings-drift banner (0.5 day)
