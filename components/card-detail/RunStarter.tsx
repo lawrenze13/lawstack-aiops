@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@heroui/react/button";
+import { BUTTON_INTENTS } from "@/components/ui/tokens";
 
 type LaneOption = {
   lane: "brainstorm" | "plan" | "review";
@@ -46,24 +48,23 @@ export function RunStarter({ taskId, options }: Props) {
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-3">
         {startAutomation ? (
-          <button
-            type="button"
-            onClick={() => startLane(startAutomation.lane, startAutomation.agentId)}
-            disabled={pending}
-            className="rounded-md bg-[color:var(--color-foreground)] px-4 py-2 text-sm font-semibold text-[color:var(--color-background)] shadow-sm hover:opacity-90 disabled:opacity-50"
-            title="Runs Brainstorm → auto-advances to Plan → Review, stops at Approve & PR gate"
+          <Button
+            {...BUTTON_INTENTS["primary-action"]}
+            size="md"
+            isDisabled={pending}
+            onPress={() => startLane(startAutomation.lane, startAutomation.agentId)}
           >
             {pending ? "Starting…" : "▶ Start Automation"}
-          </button>
+          </Button>
         ) : null}
 
-        <button
-          type="button"
-          onClick={() => setShowSingle((v) => !v)}
-          className="text-xs text-[color:var(--color-muted-foreground)] underline-offset-2 hover:underline"
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={() => setShowSingle((v) => !v)}
         >
           {showSingle ? "Hide single-step runs" : "Run a single stage instead"}
-        </button>
+        </Button>
 
         {error ? <span className="text-xs text-red-700">{error}</span> : null}
       </div>
@@ -74,15 +75,15 @@ export function RunStarter({ taskId, options }: Props) {
             Single stage (no auto-advance to next lane):
           </span>
           {options.map((o) => (
-            <button
+            <Button
               key={`${o.lane}:${o.agentId}`}
-              type="button"
-              onClick={() => startLane(o.lane, o.agentId)}
-              disabled={pending}
-              className="rounded border border-[color:var(--color-border)] bg-[color:var(--color-card)] px-2.5 py-1 text-xs hover:bg-[color:var(--color-muted)] disabled:opacity-50"
+              {...BUTTON_INTENTS["neutral-secondary"]}
+              size="sm"
+              isDisabled={pending}
+              onPress={() => startLane(o.lane, o.agentId)}
             >
               {o.label}
-            </button>
+            </Button>
           ))}
         </div>
       ) : null}

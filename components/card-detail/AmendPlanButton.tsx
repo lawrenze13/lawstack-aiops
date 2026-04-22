@@ -2,7 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@heroui/react/button";
 import { useToast } from "@/components/toast/ToastHost";
+import { BUTTON_INTENTS } from "@/components/ui/tokens";
 
 type Props = {
   taskId: string;
@@ -34,11 +36,9 @@ export function AmendPlanButton({ taskId, verdict, canControl, runActive }: Prop
   const isRewrite = verdict === "REWRITE";
   const label = isRewrite ? "Rewrite Plan from Review" : "Amend Plan from Review";
   const disabled = pending || runActive;
-  const tone = disabled
-    ? "bg-[color:var(--color-muted)] text-[color:var(--color-muted-foreground)] cursor-not-allowed"
-    : isRewrite
-      ? "bg-red-600 text-white hover:bg-red-700"
-      : "bg-amber-500 text-white hover:bg-amber-600";
+  // REWRITE = "destructive" (danger red) — the existing plan is being scrapped.
+  // AMEND = "retry" (warning amber) — iterating on the existing plan.
+  const intent = isRewrite ? "destructive" : "retry";
 
   const run = () => {
     setError(null);
@@ -70,21 +70,14 @@ export function AmendPlanButton({ taskId, verdict, canControl, runActive }: Prop
 
   return (
     <div className="flex items-center gap-2">
-      <button
-        type="button"
-        onClick={run}
-        disabled={disabled}
-        className={`rounded-md px-3 py-1.5 text-xs font-semibold shadow-sm disabled:opacity-60 ${tone}`}
-        title={
-          runActive
-            ? "A run is active on this card — wait for it to finish or click Stop first."
-            : isRewrite
-              ? "Review flagged fundamental issues — regenerate Plan from scratch using the review findings."
-              : "Review flagged specific issues — re-run Plan to address them."
-        }
+      <Button
+        {...BUTTON_INTENTS[intent]}
+        size="sm"
+        onPress={run}
+        isDisabled={disabled}
       >
         {pending ? "Running…" : runActive ? `⇡ ${label} (wait)` : `⇡ ${label}`}
-      </button>
+      </Button>
       {error ? <span className="text-xs text-red-700">{error}</span> : null}
     </div>
   );

@@ -2,6 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@heroui/react/button";
+import { TextArea } from "@heroui/react/textarea";
+import { BUTTON_INTENTS } from "@/components/ui/tokens";
 
 export type NewRunAgentOption = {
   id: string;
@@ -69,19 +72,14 @@ export function NewRunButton({ taskId, runActive, agents }: Props) {
 
   return (
     <div>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        disabled={runActive}
-        title={
-          runActive
-            ? "A run is currently active — wait for it to finish or Stop it first."
-            : "Start a fresh run with a chosen agent + optional extra prompt."
-        }
-        className="rounded border border-[color:var(--color-border)] bg-[color:var(--color-card)] px-2 py-0.5 text-[11px] font-medium hover:bg-[color:var(--color-muted)] disabled:cursor-not-allowed disabled:opacity-50"
+      <Button
+        {...BUTTON_INTENTS["neutral-secondary"]}
+        size="sm"
+        onPress={() => setOpen((v) => !v)}
+        isDisabled={runActive}
       >
         {open ? "× Cancel" : "+ New Run"}
-      </button>
+      </Button>
 
       {open ? (
         <div className="mt-2 rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-muted)]/30 p-2">
@@ -123,13 +121,13 @@ export function NewRunButton({ taskId, runActive, agents }: Props) {
             <span className="font-medium text-[color:var(--color-muted-foreground)]">
               Extra prompt (optional)
             </span>
-            <textarea
+            <TextArea
               value={extra}
               onChange={(e) => setExtra(e.target.value)}
               rows={4}
               maxLength={4000}
               placeholder={"e.g. “focus on the migration files only” or “skip the styling pass”"}
-              className="rounded border border-[color:var(--color-border)] bg-[color:var(--color-card)] px-2 py-1 text-xs placeholder:text-[color:var(--color-muted-foreground)]"
+              className="text-xs"
             />
             <span className="text-[10px] text-[color:var(--color-muted-foreground)]">
               Appended to the agent's built-in prompt. Leave empty for default behaviour.
@@ -154,22 +152,22 @@ export function NewRunButton({ taskId, runActive, agents }: Props) {
                 {error.length > 60 ? error.slice(0, 60) + "…" : error}
               </span>
             ) : null}
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              disabled={pending}
-              className="rounded border border-[color:var(--color-border)] px-2 py-1 text-[11px] hover:bg-[color:var(--color-muted)] disabled:opacity-50"
+            <Button
+              {...BUTTON_INTENTS["neutral-secondary"]}
+              size="sm"
+              onPress={() => setOpen(false)}
+              isDisabled={pending}
             >
               Cancel
-            </button>
-            <button
-              type="button"
-              onClick={submit}
-              disabled={pending || !agentId || !lane}
-              className="rounded bg-[color:var(--color-foreground)] px-2.5 py-1 text-[11px] font-medium text-[color:var(--color-background)] hover:opacity-90 disabled:opacity-50"
+            </Button>
+            <Button
+              {...BUTTON_INTENTS["primary-action"]}
+              size="sm"
+              onPress={submit}
+              isDisabled={pending || !agentId || !lane}
             >
               {pending ? "Starting…" : "Start run"}
-            </button>
+            </Button>
           </div>
         </div>
       ) : null}

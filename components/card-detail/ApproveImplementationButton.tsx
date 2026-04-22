@@ -2,7 +2,10 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@heroui/react/button";
+import { Chip } from "@heroui/react/chip";
 import { useToast } from "@/components/toast/ToastHost";
+import { BUTTON_INTENTS } from "@/components/ui/tokens";
 
 type Props = {
   taskId: string;
@@ -31,12 +34,14 @@ export function ApproveImplementationButton({
 
   if (alreadyFinalised) {
     return (
-      <span
-        className="rounded-md border border-green-500/40 bg-green-500/10 px-3 py-1 text-xs font-medium text-green-800"
+      <Chip
+        color="success"
+        variant="soft"
+        size="sm"
         title="Implementation committed, pushed, and Jira updated"
       >
         ✓ Implementation finalised
-      </span>
+      </Chip>
     );
   }
 
@@ -90,15 +95,14 @@ export function ApproveImplementationButton({
 
   return (
     <div className="flex items-center gap-2">
-      <button
-        type="button"
-        disabled={pending}
-        onClick={run}
-        className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-[color:var(--color-muted)] disabled:text-[color:var(--color-muted-foreground)]"
-        title="Commit + push the agent's changes, comment on Jira, transition to Code Review, move lane to Done"
+      <Button
+        {...BUTTON_INTENTS["success-action"]}
+        size="sm"
+        isDisabled={pending}
+        onPress={run}
       >
         {pending ? "Finalising…" : "✓ Approve Implementation"}
-      </button>
+      </Button>
       {error ? <span className="text-xs text-red-700">{error}</span> : null}
     </div>
   );

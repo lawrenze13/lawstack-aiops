@@ -2,7 +2,10 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@heroui/react/button";
+import { Chip } from "@heroui/react/chip";
 import { useToast } from "@/components/toast/ToastHost";
+import { BUTTON_INTENTS } from "@/components/ui/tokens";
 
 type PrRecord = {
   state: string;
@@ -39,9 +42,11 @@ export function ApproveButton({ taskId, prRecord, gate, canControl }: Props) {
         href={prRecord.prUrl}
         target="_blank"
         rel="noreferrer"
-        className="rounded-md border border-green-500/40 bg-green-500/10 px-3 py-1 text-xs font-medium text-green-800 hover:bg-green-500/20"
+        className="contents"
       >
-        ✓ PR opened → view
+        <Chip color="success" variant="soft" size="sm">
+          ✓ PR opened → view
+        </Chip>
       </a>
     );
   }
@@ -53,9 +58,11 @@ export function ApproveButton({ taskId, prRecord, gate, canControl }: Props) {
           href={prRecord.prUrl}
           target="_blank"
           rel="noreferrer"
-          className="rounded border border-green-500/40 bg-green-500/10 px-2 py-0.5 text-xs text-green-800 hover:bg-green-500/20"
+          className="contents"
         >
-          PR opened
+          <Chip color="success" variant="soft" size="sm">
+            PR opened
+          </Chip>
         </a>
         <ApproveRetry
           taskId={taskId}
@@ -73,9 +80,9 @@ export function ApproveButton({ taskId, prRecord, gate, canControl }: Props) {
     const failedStep = prRecord.state.replace("failed_at_", "");
     return (
       <div className="flex items-center gap-2">
-        <span className="rounded border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-xs text-red-700">
+        <Chip color="danger" variant="soft" size="sm">
           failed at {failedStep}
-        </span>
+        </Chip>
         <ApproveRetry
           taskId={taskId}
           label="Retry"
@@ -98,17 +105,16 @@ export function ApproveButton({ taskId, prRecord, gate, canControl }: Props) {
 
   return (
     <div className="flex items-center gap-2">
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() =>
+      <Button
+        {...BUTTON_INTENTS["success-action"]}
+        size="sm"
+        isDisabled={disabled}
+        onPress={() =>
           runApprove(taskId, startTransition, setError, router.refresh.bind(router), toast.push)
         }
-        className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-[color:var(--color-muted)] disabled:text-[color:var(--color-muted-foreground)]"
-        title={gateErrors.length > 0 ? gateErrors.join(" · ") : "Commit, push, open draft PR, comment on Jira"}
       >
         {pending ? "Approving…" : "✓ Approve & PR"}
-      </button>
+      </Button>
       {gateErrors.length > 0 ? (
         <span className="text-[10px] text-[color:var(--color-muted-foreground)]">
           {gateErrors.join(" · ")}
@@ -133,14 +139,14 @@ function ApproveRetry({
 }) {
   return (
     <>
-      <button
-        type="button"
-        onClick={onRetry}
-        disabled={pending}
-        className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-900 hover:bg-amber-500/20 disabled:opacity-50"
+      <Button
+        {...BUTTON_INTENTS["retry"]}
+        size="sm"
+        onPress={onRetry}
+        isDisabled={pending}
       >
         {pending ? "Retrying…" : label}
-      </button>
+      </Button>
       {error ? <span className="text-xs text-red-700">{error}</span> : null}
     </>
   );

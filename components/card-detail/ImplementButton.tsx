@@ -2,7 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@heroui/react/button";
 import { useToast } from "@/components/toast/ToastHost";
+import { BUTTON_INTENTS } from "@/components/ui/tokens";
 
 type Props = {
   taskId: string;
@@ -73,36 +75,22 @@ export function ImplementButton({
 
   return (
     <div className="flex items-center gap-2">
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => runImplement(true)}
-        className={`rounded-md px-3 py-1.5 text-xs font-semibold shadow-sm ${
-          disabled
-            ? "bg-[color:var(--color-muted)] text-[color:var(--color-muted-foreground)] cursor-not-allowed"
-            : "bg-indigo-600 text-white hover:bg-indigo-700"
-        }`}
-        title={
-          runActive
-            ? "A run is active — wait or Stop first."
-            : "Interactive: agent pauses via chat before each Bash command. You approve/deny each shell action."
-        }
+      <Button
+        {...BUTTON_INTENTS["primary-action"]}
+        size="sm"
+        isDisabled={disabled}
+        onPress={() => runImplement(true)}
       >
         {pending ? "Starting…" : runActive ? "▶ Implement (wait)" : "▶ Implement · Interactive"}
-      </button>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => runImplement(false)}
-        className={`rounded-md border px-2.5 py-1.5 text-xs ${
-          disabled
-            ? "border-[color:var(--color-border)] text-[color:var(--color-muted-foreground)] cursor-not-allowed"
-            : "border-[color:var(--color-border)] text-[color:var(--color-foreground)] hover:bg-[color:var(--color-muted)]"
-        }`}
-        title="Autopilot: agent runs without confirming each shell command. Faster but hands-off."
+      </Button>
+      <Button
+        {...BUTTON_INTENTS["neutral-secondary"]}
+        size="sm"
+        isDisabled={disabled}
+        onPress={() => runImplement(false)}
       >
         ⚡ Autopilot
-      </button>
+      </Button>
       {err ? <span className="text-xs text-red-700">{err}</span> : null}
     </div>
   );

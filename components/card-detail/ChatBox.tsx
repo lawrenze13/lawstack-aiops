@@ -2,7 +2,10 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@heroui/react/button";
+import { TextArea } from "@heroui/react/textarea";
 import { useToast } from "@/components/toast/ToastHost";
+import { BUTTON_INTENTS } from "@/components/ui/tokens";
 
 type Props = {
   runId: string;
@@ -98,7 +101,7 @@ export function ChatBox({ runId, canSend, blockedReason }: Props) {
         }}
         className="flex items-end gap-2"
       >
-        <textarea
+        <TextArea
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
@@ -110,15 +113,16 @@ export function ChatBox({ runId, canSend, blockedReason }: Props) {
           placeholder={placeholder}
           disabled={!effectiveCanSend || pending}
           rows={2}
-          className="flex-1 resize-y rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-card)] px-2 py-1 text-xs placeholder:text-[color:var(--color-muted-foreground)] disabled:opacity-50"
+          className="flex-1 text-xs"
         />
-        <button
+        <Button
+          {...BUTTON_INTENTS["primary-action"]}
+          size="sm"
           type="submit"
-          disabled={!effectiveCanSend || pending || !text.trim()}
-          className="rounded-md bg-[color:var(--color-foreground)] px-3 py-1.5 text-xs font-medium text-[color:var(--color-background)] disabled:opacity-50"
+          isDisabled={!effectiveCanSend || pending || !text.trim()}
         >
           {pending ? "Sending…" : "Send"}
-        </button>
+        </Button>
       </form>
       {error ? (
         <div className="mt-1 text-xs text-red-700">Chat failed: {error}</div>

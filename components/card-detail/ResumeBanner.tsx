@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@heroui/react/button";
+import { BUTTON_INTENTS } from "@/components/ui/tokens";
 
 type Props = {
   taskId: string;
@@ -61,15 +63,14 @@ export function ResumeBanner({
           </div>
         </div>
         {canControl ? (
-          <button
-            type="button"
-            onClick={resume}
-            disabled={pending || !claudeSessionId}
-            title={claudeSessionId ? undefined : "No Claude session id captured — Resume unavailable"}
-            className="rounded border border-amber-600 bg-amber-500 px-3 py-1 text-xs font-medium text-white hover:bg-amber-600 disabled:opacity-50"
+          <Button
+            {...BUTTON_INTENTS["retry"]}
+            size="sm"
+            onPress={resume}
+            isDisabled={pending || !claudeSessionId}
           >
             {pending ? "Resuming…" : "Resume"}
-          </button>
+          </Button>
         ) : null}
       </div>
       {error ? <div className="mt-1 text-xs text-red-700">Resume failed: {error}</div> : null}

@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Button } from "@heroui/react/button";
+import { Input } from "@heroui/react/input";
+import { BUTTON_INTENTS } from "@/components/ui/tokens";
 
 type JiraIssue = {
   key: string;
@@ -58,13 +61,13 @@ export function NewTaskDialog({ onCreated }: Props) {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="rounded-md bg-[color:var(--color-foreground)] px-3 py-1.5 text-sm font-medium text-[color:var(--color-background)]"
+      <Button
+        {...BUTTON_INTENTS["primary-action"]}
+        size="sm"
+        onPress={() => setOpen(true)}
       >
         New Task
-      </button>
+      </Button>
 
       {open ? (
         <div
@@ -85,20 +88,21 @@ export function NewTaskDialog({ onCreated }: Props) {
                 if (query.trim()) search();
               }}
             >
-              <input
+              <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="MP-1050 or 'fix login redirect'"
-                className="flex-1 rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-card)] px-3 py-1.5 text-sm"
+                className="flex-1"
                 autoFocus
               />
-              <button
+              <Button
+                {...BUTTON_INTENTS["neutral-secondary"]}
+                size="md"
                 type="submit"
-                disabled={isSearching || !query.trim()}
-                className="rounded-md border border-[color:var(--color-border)] px-3 py-1.5 text-sm disabled:opacity-50"
+                isDisabled={isSearching || !query.trim()}
               >
                 {isSearching ? "Searching…" : "Search"}
-              </button>
+              </Button>
             </form>
 
             {error ? (
@@ -110,17 +114,19 @@ export function NewTaskDialog({ onCreated }: Props) {
             <ul className="mt-3 max-h-72 overflow-y-auto">
               {results.map((r) => (
                 <li key={r.key}>
-                  <button
-                    type="button"
-                    onClick={() => create(r.key)}
-                    disabled={isCreating}
-                    className="flex w-full items-start gap-3 rounded-md border border-transparent px-3 py-2 text-left text-sm hover:border-[color:var(--color-border)] hover:bg-[color:var(--color-muted)] disabled:opacity-50"
+                  <Button
+                    variant="ghost"
+                    size="md"
+                    fullWidth
+                    onPress={() => create(r.key)}
+                    isDisabled={isCreating}
+                    className="justify-start gap-3 text-left"
                   >
                     <span className="font-mono text-xs text-[color:var(--color-muted-foreground)]">
                       {r.key}
                     </span>
                     <span className="flex-1">{r.fields.summary}</span>
-                  </button>
+                  </Button>
                 </li>
               ))}
               {!isSearching && results.length === 0 && query ? (

@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Button } from "@heroui/react/button";
 import { useToast } from "@/components/toast/ToastHost";
+import { BUTTON_INTENTS } from "@/components/ui/tokens";
 
 type Props = {
   taskId: string;
@@ -55,15 +57,14 @@ export function PreviewDevButton({ taskId, canControl }: Props) {
 
   return (
     <div className="flex items-center gap-2">
-      <button
-        type="button"
-        onClick={run}
-        disabled={pending}
-        title="Checks out this task's branch in the local dev env and opens it in a new tab"
-        className="rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-card)] px-2.5 py-1 text-xs font-medium hover:bg-[color:var(--color-muted)] disabled:opacity-50"
+      <Button
+        {...BUTTON_INTENTS["neutral-secondary"]}
+        size="sm"
+        isDisabled={pending}
+        onPress={run}
       >
         {pending ? "Switching…" : "▶ Preview in dev"}
-      </button>
+      </Button>
       {error ? (
         <span className="text-[11px] text-red-700" title={error}>
           {error.length > 60 ? error.slice(0, 60) + "…" : error}
