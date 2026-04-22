@@ -1,19 +1,29 @@
 import { NextResponse } from "next/server";
 import { authEdge } from "@/server/auth/edge";
 
-// Gates everything except the auth endpoints, the sign-in page, static
-// assets, and the Next internals. Unauthenticated requests to API routes
-// return 401 JSON; page requests redirect to /sign-in.
+// Gates everything except the auth endpoints, the sign-in page, the setup
+// wizard (during first-run bootstrap), static assets, and Next internals.
+// Unauthenticated API calls return 401; unauthenticated page requests
+// redirect to /sign-in.
 //
-// Uses the edge-safe config (no DB adapter import) so middleware can run
-// on the Edge runtime. Full session callbacks live in route handlers via
-// auth() from server/auth/config.
+// Edge-safe: no DB access here. Token validation for /setup* runs in the
+// route handlers (which are Node runtime). Middleware's job is only to
+// let those paths *through* to their handlers. The handlers then call
+// `validateSetupToken(token)` from server/auth/setupToken.ts.
 export default authEdge((req) => {
   const { pathname } = req.nextUrl;
 
   const isAuthRoute = pathname.startsWith("/api/auth");
   const isSignIn = pathname === "/sign-in";
-  if (isAuthRoute || isSignIn) return NextResponse.next();
+  // Allow setup routes through unauthenticated — the route handler validates
+  // the ?token= against the setup_tokens table and returns 403 if missing
+  // or if an admin user already exists.
+  const isSetup =
+    pathname === "/setup" ||
+    pathname.startsWith("/setup/") ||
+    pathname.startsWith("/api/setup/");
+
+  if (isAuthRoute || isSignIn || isSetup) return NextResponse.next();
 
   if (!req.auth) {
     if (pathname.startsWith("/api/")) {
@@ -28,6 +38,5 @@ export default authEdge((req) => {
 });
 
 export const config = {
-  // Skip Next.js internals + common static assets.
   matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|svg|gif|webp|ico)).*)"],
 };

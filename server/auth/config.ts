@@ -96,6 +96,36 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       return session;
     },
   },
+  events: {
+    // Fires once per new user row. Used to promote the very first user to
+    // admin (so the setup wizard's operator becomes the first admin
+    // without manual SQL) and to burn the setup token so the /setup URL
+    // is dead afterwards.
+    async createUser({ user }) {
+      const userId = user.id;
+      if (!userId) return;
+
+      // Count users. If this was the first, promote + burn.
+      const total = db.select({ id: users.id }).from(users).all();
+      const isFirstUser = total.length === 1 && total[0]!.id === userId;
+
+      if (isFirstUser) {
+        db.update(users)
+          .set({ role: "admin" })
+          .where(eq(users.id, userId))
+          .run();
+        audit({
+          action: "auth.first_admin_promoted",
+          actorUserId: userId,
+          payload: { email: user.email },
+        });
+
+        // Burn the setup token — the /setup URL is no longer valid.
+        const { burnSetupToken } = await import("@/server/auth/setupToken");
+        burnSetupToken(userId);
+      }
+    },
+  },
   pages: {
     signIn: "/sign-in",
     error: "/sign-in",
