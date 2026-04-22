@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@heroui/react/button";
 
 /**
  * Periodically calls router.refresh() so the ops page's server-fetched
@@ -31,16 +32,16 @@ export function AutoRefresh({ intervalMs = 15_000 }: { intervalMs?: number }) {
   }, [intervalMs, paused, router]);
 
   return (
-    <button
-      type="button"
-      onClick={() => setPaused((p) => !p)}
-      className="flex items-center gap-1.5 rounded border border-[color:var(--color-border)] bg-[color:var(--color-card)] px-2 py-1 text-[10px] text-[color:var(--color-muted-foreground)] hover:bg-[color:var(--color-muted)]"
-      title={paused ? "Auto-refresh paused — click to resume" : `Refreshes every ${intervalMs / 1000}s`}
+    <Button
+      variant="secondary"
+      size="sm"
+      onPress={() => setPaused((p) => !p)}
+      className="gap-1.5"
     >
       <span
         className={`inline-block h-1.5 w-1.5 rounded-full ${paused ? "bg-amber-500" : "animate-pulse bg-green-500"}`}
       />
       {paused ? "paused" : `auto-refresh (${secondsLeft}s)`}
-    </button>
+    </Button>
   );
 }

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Chip } from "@heroui/react/chip";
 
 type Props = {
   kind: "brainstorm" | "plan" | "review" | "implementation";
@@ -44,9 +45,9 @@ export function ArtifactViewer({ kind, filename, markdown, isStale }: Props) {
             {filename}
           </span>
           {isStale ? (
-            <span className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[9px] uppercase text-amber-800">
+            <Chip color="warning" variant="soft" size="sm" className="uppercase text-[9px]">
               stale
-            </span>
+            </Chip>
           ) : null}
           <span className="text-[10px] text-[color:var(--color-muted-foreground)]">
             {markdown.length.toLocaleString()} chars

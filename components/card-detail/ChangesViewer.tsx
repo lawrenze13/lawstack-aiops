@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@heroui/react/button";
+import { Chip } from "@heroui/react/chip";
+import { BUTTON_INTENTS } from "@/components/ui/tokens";
 
 type DiffResponse =
   | {
@@ -137,18 +140,18 @@ export function ChangesViewer({ taskId }: Props) {
             {data.commits.length} commit{data.commits.length === 1 ? "" : "s"}
           </span>
           {data.truncated ? (
-            <span className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-800">
+            <Chip color="warning" variant="soft" size="sm">
               truncated
-            </span>
+            </Chip>
           ) : null}
         </div>
-        <button
-          type="button"
-          onClick={() => setRefreshKey((k) => k + 1)}
-          className="rounded border border-[color:var(--color-border)] px-2 py-0.5 text-[11px] hover:bg-[color:var(--color-muted)]"
+        <Button
+          {...BUTTON_INTENTS["neutral-secondary"]}
+          size="sm"
+          onPress={() => setRefreshKey((k) => k + 1)}
         >
           Refresh
-        </button>
+        </Button>
       </div>
 
       <div className="flex min-h-0 flex-1">

@@ -7,6 +7,7 @@ import {
   useDraggable,
   useDroppable,
 } from "@dnd-kit/react";
+import { Chip } from "@heroui/react/chip";
 import { NewTaskDialog } from "./NewTaskDialog";
 
 const LANES = [
@@ -275,53 +276,34 @@ function CardStatusBadges({ task }: { task: Task }) {
   return (
     <span className="flex items-center gap-1">
       {s === "running" ? (
-        <span
-          className="flex items-center gap-1 rounded border border-green-500/40 bg-green-500/10 px-1 py-0.5 text-[9px] font-medium uppercase text-green-700"
-          title="agent running"
-        >
-          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
+        <Chip color="success" variant="primary" size="sm" className="uppercase text-[9px]">
           live
-        </span>
+        </Chip>
       ) : null}
       {s === "failed" || s === "cost_killed" ? (
-        <span
-          className="rounded border border-red-500/40 bg-red-500/10 px-1 py-0.5 text-[9px] font-medium uppercase text-red-700"
-          title={s}
-        >
+        <Chip color="danger" variant="soft" size="sm" className="uppercase text-[9px]">
           {s === "cost_killed" ? "$$$" : "failed"}
-        </span>
+        </Chip>
       ) : null}
       {s === "interrupted" ? (
-        <span
-          className="rounded border border-amber-500/40 bg-amber-500/10 px-1 py-0.5 text-[9px] font-medium uppercase text-amber-800"
-          title="interrupted — click to resume"
-        >
+        <Chip color="warning" variant="soft" size="sm" className="uppercase text-[9px]">
           paused
-        </span>
+        </Chip>
       ) : null}
       {s === "awaiting_input" ? (
-        <span
-          className="rounded border border-indigo-500/40 bg-indigo-500/10 px-1 py-0.5 text-[9px] font-medium uppercase text-indigo-700"
-          title="agent is waiting for your reply"
-        >
+        <Chip color="accent" variant="soft" size="sm" className="uppercase text-[9px]">
           waiting
-        </span>
+        </Chip>
       ) : null}
       {task.prState === "jira_notified" || task.prState === "pr_opened" ? (
-        <span
-          className="rounded border border-blue-500/40 bg-blue-500/10 px-1 py-0.5 text-[9px] font-medium uppercase text-blue-700"
-          title={`PR ${task.prState}`}
-        >
+        <Chip color="accent" variant="primary" size="sm" className="uppercase text-[9px]">
           PR
-        </span>
+        </Chip>
       ) : null}
       {task.prState?.startsWith("failed_at_") ? (
-        <span
-          className="rounded border border-red-500/40 bg-red-500/10 px-1 py-0.5 text-[9px] font-medium uppercase text-red-700"
-          title={task.prState}
-        >
+        <Chip color="danger" variant="soft" size="sm" className="uppercase text-[9px]">
           PR ✘
-        </span>
+        </Chip>
       ) : null}
     </span>
   );

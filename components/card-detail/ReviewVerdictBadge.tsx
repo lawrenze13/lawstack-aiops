@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@heroui/react/button";
+import { Chip } from "@heroui/react/chip";
+import { BUTTON_INTENTS, VERDICT_CHIP } from "@/components/ui/tokens";
 
 export type ReviewVerdictState =
   | { kind: "none" }
@@ -76,16 +79,18 @@ export function ReviewVerdictBadge({ taskId, initial }: Props) {
 
   if (state.kind === "pending") {
     return (
-      <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-800">
-        <span>⏳ CI review pending</span>
-        <button
-          type="button"
-          onClick={check}
-          disabled={checking}
-          className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 text-[11px] hover:bg-amber-500/20 disabled:opacity-50"
+      <div className="flex items-center gap-2">
+        <Chip {...VERDICT_CHIP.pending} size="sm">
+          ⏳ CI review pending
+        </Chip>
+        <Button
+          {...BUTTON_INTENTS["retry"]}
+          size="sm"
+          onPress={check}
+          isDisabled={checking}
         >
           {checking ? "checking…" : "check now"}
-        </button>
+        </Button>
       </div>
     );
   }
@@ -93,24 +98,20 @@ export function ReviewVerdictBadge({ taskId, initial }: Props) {
   // verdict
   if (state.verdict === "PASS") {
     return (
-      <span
-        className="rounded-md border border-green-500/40 bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-800"
-        title="CI reviewer passed — Jira transitioned to Ready for QA"
-      >
+      <Chip {...VERDICT_CHIP.PASS} size="sm">
         ✅ Review PASS
-      </span>
+      </Chip>
     );
   }
 
-  const severity =
-    state.verdict === "P1" ? "P1 Critical" : "P2 Blocker";
+  const severity = state.verdict === "P1" ? "P1 Critical" : "P2 Blocker";
+  const verdictChip = state.verdict === "P1" ? VERDICT_CHIP.P1 : VERDICT_CHIP.P2_BLOCKER;
   return (
     <details className="group">
-      <summary
-        className="cursor-pointer list-none rounded-md border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-800 hover:bg-red-500/20"
-        title="Click to view blocking issues"
-      >
-        ❌ Review {severity} — click for details
+      <summary className="cursor-pointer list-none">
+        <Chip {...verdictChip} size="sm">
+          ❌ Review {severity} — click for details
+        </Chip>
       </summary>
       <div className="absolute mt-1 max-w-md rounded-md border border-red-500/40 bg-[color:var(--color-card)] p-3 text-xs shadow-lg">
         <div className="mb-1 font-semibold text-red-800">

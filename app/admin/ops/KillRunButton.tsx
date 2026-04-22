@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@heroui/react/button";
+import { BUTTON_INTENTS } from "@/components/ui/tokens";
 
 export function KillRunButton({ runId }: { runId: string }) {
   const router = useRouter();
@@ -9,10 +11,11 @@ export function KillRunButton({ runId }: { runId: string }) {
   const [err, setErr] = useState<string | null>(null);
 
   return (
-    <button
-      type="button"
-      disabled={pending}
-      onClick={() => {
+    <Button
+      {...BUTTON_INTENTS["destructive"]}
+      size="sm"
+      isDisabled={pending}
+      onPress={() => {
         setErr(null);
         start(async () => {
           const res = await fetch("/api/admin/kill-run", {
@@ -28,10 +31,8 @@ export function KillRunButton({ runId }: { runId: string }) {
           router.refresh();
         });
       }}
-      className="rounded border border-red-500/40 bg-red-500/10 px-2 py-0.5 text-[10px] text-red-700 hover:bg-red-500/20 disabled:opacity-50"
-      title={err ?? "Kill this run (SIGTERM or mark interrupted)"}
     >
       {pending ? "…" : err ? "retry" : "kill"}
-    </button>
+    </Button>
   );
 }

@@ -1,6 +1,8 @@
 "use client";
 
+import { Chip } from "@heroui/react/chip";
 import { NewRunButton, type NewRunAgentOption } from "./NewRunButton";
+import { RUN_STATUS_CHIP, type RunStatusUI } from "@/components/ui/tokens";
 
 export type RunSummary = {
   id: string;
@@ -89,19 +91,16 @@ export function RunSidebar({
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const cls =
-    status === "running"
-      ? "bg-green-500/15 text-green-700 border-green-500/40"
-      : status === "completed"
-        ? "bg-blue-500/10 text-blue-700 border-blue-500/30"
-        : status === "failed" || status === "cost_killed"
-          ? "bg-red-500/15 text-red-700 border-red-500/40"
-          : status === "stopped" || status === "interrupted"
-            ? "bg-amber-500/15 text-amber-800 border-amber-500/40"
-            : "bg-[color:var(--color-muted)] text-[color:var(--color-muted-foreground)] border-[color:var(--color-border)]";
+  // Fall back to "completed" styling for any unknown status so we never
+  // crash on a new enum value shipped server-side before the client
+  // catches up.
+  const props =
+    (RUN_STATUS_CHIP as Record<string, (typeof RUN_STATUS_CHIP)[RunStatusUI]>)[
+      status
+    ] ?? RUN_STATUS_CHIP.completed;
   return (
-    <span className={`rounded border px-1.5 py-0.5 text-[9px] uppercase ${cls}`}>
+    <Chip {...props} size="sm" className="uppercase text-[9px]">
       {status}
-    </span>
+    </Chip>
   );
 }

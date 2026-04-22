@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Chip } from "@heroui/react/chip";
 
 type Artifact = {
   kind: "brainstorm" | "plan" | "review" | "implementation";
@@ -71,9 +72,9 @@ export function ArtifactPanel({ artifacts }: Props) {
                 </span>
                 <span className="flex items-center gap-1.5">
                   {a.isStale ? (
-                    <span className="rounded border border-amber-500/40 bg-amber-500/10 px-1 py-0.5 text-[9px] uppercase text-amber-800">
+                    <Chip color="warning" variant="soft" size="sm" className="uppercase text-[9px]">
                       stale
-                    </span>
+                    </Chip>
                   ) : null}
                   <span className="text-[10px] text-[color:var(--color-muted-foreground)]">
                     {isActive ? "open" : "view →"}

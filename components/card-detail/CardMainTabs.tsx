@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { Chip } from "@heroui/react/chip";
 import { ArtifactViewer } from "./ArtifactViewer";
 import { ChangesViewer } from "./ChangesViewer";
 import { DevShell } from "./DevShell";
@@ -121,9 +122,9 @@ export function CardMainTabs({
           >
             {KIND_LABEL[a.kind]}
             {a.isStale ? (
-              <span className="ml-1 rounded bg-amber-500/20 px-1 py-0 text-[9px] uppercase text-amber-800">
+              <Chip color="warning" variant="soft" size="sm" className="ml-1 uppercase text-[9px]">
                 stale
-              </span>
+              </Chip>
             ) : null}
           </TabButton>
         ))}
