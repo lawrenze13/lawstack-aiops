@@ -54,8 +54,18 @@ Set up ONCE per install in Google Cloud Console:
    ```
 
 4. **Walk the wizard:**
-   - [ ] **Step 1 · Auth** — paste Google client ID + secret; save. The
-         `AUTH_SECRET` field is pre-filled with `openssl rand -hex 32`.
+   - [ ] **Step 1 · Auth** — paste Google client ID + secret. `AUTH_SECRET`
+         can be left blank (a random 32-byte hex is generated on save).
+         `AUTH_URL` is pre-filled from the URL you're on right now —
+         leave it alone unless you're behind a reverse proxy serving on
+         a different origin. Trailing slashes are stripped automatically.
+         A live "paste this into Google Cloud Console" panel below the
+         fields shows the exact callback URL you need to register —
+         **add it to the OAuth client's Authorized redirect URIs before
+         clicking Finish**, or sign-in will fail with
+         `redirect_uri_mismatch`. `ALLOWED_EMAIL_DOMAINS` defaults to
+         empty (deny-all) — fill it with your Workspace domain(s),
+         comma-separated.
    - [ ] **Step 2 · Jira** — base URL + email + API token; press Test.
          The chip should flip to green ("connected as …"). Next unlocks.
    - [ ] **Step 3 · Paths** — worktree root + base repo; press Test.

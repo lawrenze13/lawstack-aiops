@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "next dev -p 3300",
     "build": "next build",
-    "start": "next start -p 3300",
+    "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",

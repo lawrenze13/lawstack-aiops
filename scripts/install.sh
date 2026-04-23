@@ -296,7 +296,26 @@ if [[ ! -f "$INSTALL_DIR/.env" ]]; then
 		chmod 600 "$INSTALL_DIR/.env"
 	fi
 else
-	log ".env already exists — leaving it alone"
+	# .env already exists — usually safe to keep (preserves operator-edited
+	# secrets, OAuth creds, Jira tokens). The one footgun is cross-mode
+	# re-runs: if you went `--mode full → --mode local` against the same
+	# INSTALL_DIR, the saved AUTH_URL is `https://domain` but the app now
+	# listens on `http://localhost:PORT`. NextAuth builds its callback URL
+	# from AUTH_URL → sign-in breaks silently. Detect the mismatch and
+	# rewrite AUTH_URL in-place; everything else in .env survives.
+	EXISTING_AUTH_URL=$(grep -E '^AUTH_URL=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2- || true)
+	if [[ -n "$EXISTING_AUTH_URL" && "$EXISTING_AUTH_URL" != "$AUTH_URL_VALUE" ]]; then
+		log ".env exists; AUTH_URL mismatch detected ($EXISTING_AUTH_URL → $AUTH_URL_VALUE for --mode $MODE) — rewriting"
+		if (( !DRY_RUN )); then
+			# In-place edit. Use a stable delimiter that can't appear in URLs.
+			sed -i "s|^AUTH_URL=.*|AUTH_URL=$AUTH_URL_VALUE|" "$INSTALL_DIR/.env"
+		fi
+		# DB also caches AUTH_URL via the wizard. Warn so the operator
+		# fixes it via the wizard or admin/settings on next boot.
+		warn "the settings table may still hold the old AUTH_URL — open /admin/settings (or re-run /setup) and confirm Base URL"
+	else
+		log ".env already exists — leaving it alone"
+	fi
 fi
 
 # ─── Install deps + migrate + build ──────────────────────────────────────────
@@ -326,11 +345,10 @@ if [[ "$MODE" == "local" ]]; then
 			cd "$INSTALL_DIR"
 			source "$HOME/.nvm/nvm.sh"
 			nvm use 20 >/dev/null
-			# Bypass `npm start` because package.json hardcodes -p 3300,
-			# which overrides PORT env. Use `next start -p <PORT>` directly
-			# with the local install's binary so --port is honoured.
+			# `next start` (via npm start) honours PORT env; no -p flag
+			# needed now that package.json's hardcode is gone.
 			export PORT="$PORT"
-			nohup "$NODE_BIN_DIR/npx" next start -p "$PORT" > "$LOGFILE" 2>&1 &
+			nohup "$NODE_BIN_DIR/npm" run start > "$LOGFILE" 2>&1 &
 			echo $! > "$PIDFILE"
 		)
 		log "started (pid $(cat "$PIDFILE")); logs at $LOGFILE"
@@ -385,7 +403,12 @@ else
 		run "cp '$BACKUP' '$CADDYFILE'"
 		fail "your Caddyfile is unchanged. Check output of: caddy validate --config $CADDYFILE"
 	fi
-	run "systemctl reload caddy || systemctl restart caddy"
+	# `systemctl reload caddy` blocks indefinitely on systemd's
+	# admin-endpoint handshake on some Ubuntu/Debian builds (observed in
+	# the field). `restart` is correct for picking up the new Caddyfile
+	# block and doesn't drop active connections for long enough to matter
+	# at first-install scale.
+	run "systemctl restart caddy"
 fi
 fi  # end: Caddy block only for full mode
 

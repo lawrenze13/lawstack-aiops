@@ -42,18 +42,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const email = (profile?.email ?? user?.email ?? "").toLowerCase();
       const emailVerified = (profile as { email_verified?: boolean } | undefined)?.email_verified;
 
+      // denyTo builds a redirect back to /sign-in carrying enough context
+      // for the page to show "you signed in as foo@x.com — that's not
+      // allowed" instead of the old generic "rejected" message. NextAuth
+      // v5 treats a returned URL string as a redirect target.
+      const denyTo = (reason: string, attempted: string) =>
+        `/sign-in?error=${reason}&attempted=${encodeURIComponent(attempted)}`;
+
       if (!email) {
         audit({ action: "auth.denied_no_email", payload: { profile } });
-        return false;
+        return denyTo("NoEmail", "");
       }
       if (emailVerified === false) {
         audit({ action: "auth.denied_unverified", payload: { email } });
-        return false;
+        return denyTo("Unverified", email);
       }
       const domain = email.split("@")[1] ?? "";
       if (!ALLOWED_DOMAINS.includes(domain)) {
         audit({ action: "auth.denied_domain", payload: { email, allowed: ALLOWED_DOMAINS } });
-        return false;
+        return denyTo("DomainNotAllowed", email);
       }
 
       // Belt-and-braces: if the allow-list table has any rows, require a
@@ -69,7 +76,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           .all();
         if (hit.length === 0) {
           audit({ action: "auth.denied_allowlist", payload: { email } });
-          return false;
+          return denyTo("NotOnAllowlist", email);
         }
       }
 

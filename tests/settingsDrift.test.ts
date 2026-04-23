@@ -121,12 +121,16 @@ describe("detectSettingsDrift", () => {
   });
 
   it("returns hasMissing=false only when every required field is set", () => {
-    // Seed every known required key so drift is clean.
+    // Seed every known required key so drift is clean. ALLOWED_EMAIL_DOMAINS
+    // is required from the operator too — its zod default is "" (deny-all)
+    // specifically so a fresh install surfaces as drift until the wizard
+    // collects a real value.
     const seed: Record<string, string> = {
       AUTH_SECRET: "a".repeat(32),
       AUTH_GOOGLE_ID: "goog-id",
       AUTH_GOOGLE_SECRET: "goog-secret",
       AUTH_URL: "https://app.example.com",
+      ALLOWED_EMAIL_DOMAINS: "example.com",
       JIRA_BASE_URL: "https://acme.atlassian.net",
       JIRA_EMAIL: "ops@example.com",
       JIRA_API_TOKEN: "tok",
@@ -136,8 +140,6 @@ describe("detectSettingsDrift", () => {
       configMod.__testSetConfigRaw(k as never, JSON.stringify(v));
     }
     const result = driftMod.detectSettingsDrift();
-    // Required fields with defaults (ALLOWED_EMAIL_DOMAINS, WORKTREE_ROOT,
-    // DATABASE_URL) resolve to their default — they are never missing.
     if (result.hasMissing) {
       // Surface what's still missing if this ever flakes.
       throw new Error(

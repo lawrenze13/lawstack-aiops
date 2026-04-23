@@ -19,6 +19,8 @@ type Props = {
   totalSteps: number;
   section: SettingSection;
   initialValues: Record<string, unknown>;
+  /** URL the wizard itself was served on — pre-filled into AUTH_URL. */
+  detectedAuthUrl?: string;
 };
 
 /**
@@ -34,6 +36,7 @@ export function WizardStep({
   totalSteps,
   section,
   initialValues,
+  detectedAuthUrl,
 }: Props) {
   const router = useRouter();
   const [values, setValues] = useState<Record<string, unknown>>(initialValues);
@@ -155,6 +158,13 @@ export function WizardStep({
         ))}
       </div>
 
+      {section.id === "auth" ? (
+        <GoogleRedirectHint
+          authUrl={typeof values.AUTH_URL === "string" ? values.AUTH_URL : ""}
+          detected={detectedAuthUrl}
+        />
+      ) : null}
+
       {section.test ? (
         <div className="mt-5 rounded-md border border-[color:var(--border)] bg-[color:var(--surface-secondary)]/40 p-3">
           <StepTest
@@ -172,6 +182,7 @@ export function WizardStep({
         </div>
       ) : null}
 
+      {/* Gap separator before nav buttons. */}
       <div className="mt-6 flex items-center justify-between">
         <Button
           {...BUTTON_INTENTS["neutral-secondary"]}
@@ -203,5 +214,54 @@ export function WizardStep({
         </div>
       </div>
     </section>
+  );
+}
+
+/**
+ * Live panel rendered under the auth step that prints the exact callback
+ * URL the operator must paste into the Google Cloud Console OAuth
+ * client's "Authorized redirect URIs" list. Updates as the user edits
+ * AUTH_URL so a typo gets caught before they click Save.
+ *
+ * Rendered only on the auth section; safe to no-op if AUTH_URL is empty.
+ */
+function GoogleRedirectHint({
+  authUrl,
+  detected,
+}: {
+  authUrl: string;
+  detected?: string;
+}) {
+  const effective = authUrl.trim().replace(/\/+$/, "") || detected?.trim() || "";
+  if (!effective) return null;
+
+  const callback = `${effective}/api/auth/callback/google`;
+  const matchesDetected =
+    detected && effective.replace(/\/+$/, "") === detected.replace(/\/+$/, "");
+
+  return (
+    <div className="mt-5 rounded-md border border-[color:var(--accent)]/30 bg-[color:var(--accent)]/5 p-3">
+      <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--accent)]">
+        paste into google cloud console
+      </div>
+      <p className="text-[12px] leading-relaxed text-[color:var(--foreground)]">
+        Add this exact URL under{" "}
+        <span className="font-mono text-[color:var(--muted)]">
+          Credentials → OAuth client → Authorized redirect URIs
+        </span>
+        :
+      </p>
+      <code className="mt-2 block select-all overflow-x-auto rounded border border-[color:var(--border)] bg-[color:var(--surface-secondary)]/70 px-2 py-1.5 font-mono text-[12px] text-[color:var(--foreground)]">
+        {callback}
+      </code>
+      {!matchesDetected && detected ? (
+        <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400">
+          Heads up: you&apos;re editing this wizard on{" "}
+          <span className="font-mono">{detected}</span>. If your public URL
+          is different, make sure DNS + the reverse proxy resolve to this
+          app before saving.
+        </p>
+      ) : null}
+    </div>
   );
 }

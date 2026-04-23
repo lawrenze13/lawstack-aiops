@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/server/db/client";
 import { users } from "@/server/db/schema";
@@ -61,6 +62,28 @@ export default async function WizardStepPage({ params, searchParams }: Props) {
     }
   }
 
+  // Derive the URL the browser is actually talking to right now. This is
+  // the only reliable source — the wizard runs in the same origin as
+  // what the operator just typed into the URL bar, so `host` +
+  // `x-forwarded-proto` match the real public URL when behind Caddy and
+  // the local URL when running `--mode local`. Pre-filling AUTH_URL
+  // kills the #1 install foot-gun (port mismatch) and gives us a
+  // redirect-URI hint to print next to the Google credential fields.
+  const h = await headers();
+  const host =
+    h.get("x-forwarded-host") ??
+    h.get("host") ??
+    `localhost:${process.env.PORT ?? "3300"}`;
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const detectedAuthUrl = `${proto}://${host}`;
+
+  if (section.id === "auth") {
+    const current = initialValues.AUTH_URL;
+    if (typeof current !== "string" || current.trim() === "") {
+      initialValues.AUTH_URL = detectedAuthUrl;
+    }
+  }
+
   return (
     <WizardStep
       token={token}
@@ -68,6 +91,7 @@ export default async function WizardStepPage({ params, searchParams }: Props) {
       totalSteps={orderedSections.length}
       section={section}
       initialValues={initialValues}
+      detectedAuthUrl={detectedAuthUrl}
     />
   );
 }

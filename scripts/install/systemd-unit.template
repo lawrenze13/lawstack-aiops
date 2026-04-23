@@ -17,10 +17,9 @@ Environment=PATH=__NODE_BIN_DIR__:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/
 # Run migrations before each start — idempotent, no-op if schema is current.
 ExecStartPre=__NODE_BIN_DIR__/npm run db:migrate
 
-# Bypass `npm start` because package.json hardcodes -p 3300, which
-# overrides Environment=PORT above. Launch next directly with -p __PORT__
-# so systemd's PORT setting actually takes effect.
-ExecStart=__NODE_BIN_DIR__/npx next start -p __PORT__
+# `npm start` → `next start`, which honours Environment=PORT. No -p flag
+# needed (the hardcoded one in package.json was removed).
+ExecStart=__NODE_BIN_DIR__/npm run start
 
 # Restart on crashes; give up after 5 failed starts in 60s so a broken build
 # doesn't thrash forever.

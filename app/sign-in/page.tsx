@@ -10,22 +10,57 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Props = {
-  searchParams: Promise<{ from?: string; error?: string }>;
+  searchParams: Promise<{
+    from?: string;
+    error?: string;
+    attempted?: string;
+  }>;
 };
 
 function formatDomains(): string {
+  if (ALLOWED_DOMAINS.length === 0) return "(no domains configured yet)";
   if (ALLOWED_DOMAINS.length === 1) return `@${ALLOWED_DOMAINS[0]}`;
   return ALLOWED_DOMAINS.map((d) => `@${d}`).join(" or ");
+}
+
+/**
+ * Human-friendly explanation for each NextAuth / signIn-callback error
+ * code. Keep the messages specific — the old "rejected" message was
+ * symmetrical across all failure modes which made them indistinguishable.
+ */
+function errorMessage(code: string, attempted: string, domains: string): string {
+  const who = attempted ? ` as ${attempted}` : "";
+  switch (code) {
+    case "DomainNotAllowed":
+      return `You signed in${who}, but only ${domains} accounts are allowed on this instance. Pick a different Google account, or ask your admin to add this domain in /admin/settings.`;
+    case "NotOnAllowlist":
+      return `${attempted || "That account"} is on an allowed domain, but it isn't on the explicit allow-list. Ask your admin to add you.`;
+    case "Unverified":
+      return `${attempted || "That account"}'s email isn't verified by Google yet — verify it and try again.`;
+    case "NoEmail":
+      return `Google didn't return an email for that account — can't authenticate without one.`;
+    case "Configuration":
+      return `OAuth isn't configured yet (or is misconfigured). Visit /setup or /admin/settings to check AUTH_GOOGLE_ID, AUTH_GOOGLE_SECRET, and AUTH_URL.`;
+    case "AccessDenied":
+      return `Google rejected the sign-in. If this was unexpected, try revoking the app at https://myaccount.google.com/permissions and try again.`;
+    default:
+      return `Sign-in failed${who}. Make sure you used your ${domains} account.`;
+  }
 }
 
 export default async function SignInPage({ searchParams }: Props) {
   const anyUser = db.select({ id: users.id }).from(users).limit(1).all();
   const oauthConfigured = Boolean(env.AUTH_GOOGLE_ID && env.AUTH_GOOGLE_SECRET);
   if (anyUser.length === 0 && !oauthConfigured) redirect("/setup");
+  // ALLOWED_EMAIL_DOMAINS defaults to empty on fresh installs (secure
+  // default). If the first-admin hasn't walked the wizard yet, bounce
+  // them back so they don't get a mysterious rejection on sign-in.
+  if (anyUser.length === 0 && ALLOWED_DOMAINS.length === 0) redirect("/setup");
 
   const sp = await searchParams;
   const from = sp.from ?? "/";
   const error = sp.error;
+  const attempted = sp.attempted ?? "";
   const domains = formatDomains();
   const isFirstAdmin = anyUser.length === 0;
 
@@ -83,8 +118,7 @@ export default async function SignInPage({ searchParams }: Props) {
 
               {error ? (
                 <div className="mt-5 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:text-red-300">
-                  Sign-in was rejected. Make sure you used your {domains}{" "}
-                  account.
+                  {errorMessage(error, attempted, domains)}
                 </div>
               ) : null}
 

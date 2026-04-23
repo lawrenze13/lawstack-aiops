@@ -50,7 +50,11 @@ export const configSchema = z.object({
   AUTH_GOOGLE_ID: optionalStr(z.string().min(1)),
   AUTH_GOOGLE_SECRET: optionalStr(z.string().min(1)),
   AUTH_URL: optionalStr(z.string().url()),
-  ALLOWED_EMAIL_DOMAINS: z.string().min(1).default("multiportal.io"),
+  // Empty default is intentional: a fresh install should deny everyone
+  // until the wizard sets this. The wizard's UI enforces non-empty;
+  // server/lib/env.ts:getAllowedDomains() turns "" into [] and
+  // server/auth/config.ts rejects sign-ins when the domain list is empty.
+  ALLOWED_EMAIL_DOMAINS: z.string().default(""),
   JIRA_START_STATUS: z.string().min(1).default("In Progress"),
   JIRA_REVIEW_STATUS: z.string().min(1).default("Code Review"),
   JIRA_BASE_URL: optionalStr(z.string().url()),

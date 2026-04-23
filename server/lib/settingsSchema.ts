@@ -88,10 +88,10 @@ export const SETTINGS: SettingSection[] = [
         key: "AUTH_SECRET",
         label: "Auth secret",
         description:
-          "Signs session JWTs. Minimum 32 characters. Generate with: `openssl rand -base64 32`",
+          "Signs session JWTs. Leave blank and a 32-byte random secret will be generated for you on save.",
         kind: "password",
         mask: true,
-        required: true,
+        required: false,
       },
       {
         key: "AUTH_GOOGLE_ID",
@@ -113,7 +113,7 @@ export const SETTINGS: SettingSection[] = [
         key: "AUTH_URL",
         label: "Base URL",
         description:
-          "Public URL where this orchestrator is served. Must match the OAuth redirect URI you configured in Google Cloud.",
+          "Public URL where this orchestrator is served. Pre-filled from the URL you're on right now. Edit if you're behind a reverse proxy and this wizard is running on a different origin than users will hit. Trailing slashes get stripped on save.",
         kind: "url",
         placeholder: "https://ai-ops.example.com",
         required: true,

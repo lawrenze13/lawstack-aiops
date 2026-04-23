@@ -102,7 +102,9 @@ afterEach(() => {
 describe("getConfig precedence", () => {
   it("returns zod default when no DB row and no env", () => {
     expect(configMod.getConfig("JIRA_START_STATUS")).toBe("In Progress");
-    expect(configMod.getConfig("ALLOWED_EMAIL_DOMAINS")).toBe("multiportal.io");
+    // ALLOWED_EMAIL_DOMAINS defaults to "" (deny-all) on fresh installs.
+    // The wizard prompts the operator to fill it in before auth works.
+    expect(configMod.getConfig("ALLOWED_EMAIL_DOMAINS")).toBe("");
   });
 
   it("returns process.env value when no DB row", () => {

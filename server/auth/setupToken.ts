@@ -92,19 +92,41 @@ export function burnSetupToken(actorUserId: string | null): void {
 }
 
 function logSetupUrl(token: string): void {
-  const host = process.env.HOST ?? "localhost";
-  const port = process.env.PORT ?? "3300";
-  const url = `http://${host}:${port}/setup?token=${token}`;
+  // Precedence for the printed URL:
+  //   1. AUTH_URL env/config — operator's public URL, if they pre-seeded it
+  //   2. HOST + PORT env — set by the installer + systemd unit
+  //   3. Next.js default port 3000 as last resort
+  const base =
+    sanitiseBase(process.env.AUTH_URL) ??
+    (() => {
+      const host = process.env.HOST ?? "localhost";
+      const port = process.env.PORT ?? "3000";
+      return `http://${host}:${port}`;
+    })();
+  const url = `${base}/setup?token=${token}`;
+  const callback = `${base}/api/auth/callback/google`;
   // eslint-disable-next-line no-console
   console.log(
     [
       "",
       "┌─ SETUP REQUIRED ─────────────────────────────────────────────",
       `│ Open: ${url}`,
+      "│",
+      "│ When asked, paste this into Google Cloud Console under",
+      "│ Credentials → OAuth client → Authorized redirect URIs:",
+      `│   ${callback}`,
+      "│",
       "│ This URL expires when the first admin signs in via Google.",
       "│ Only the person with this URL can configure the orchestrator.",
       "└──────────────────────────────────────────────────────────────",
       "",
     ].join("\n"),
   );
+}
+
+function sanitiseBase(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim().replace(/\/+$/, "");
+  if (!/^https?:\/\//.test(trimmed)) return null;
+  return trimmed;
 }
