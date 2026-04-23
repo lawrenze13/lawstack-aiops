@@ -1,9 +1,8 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { auth } from "@/server/auth/config";
 import { SETTINGS } from "@/server/lib/settingsSchema";
 import { getConfig } from "@/server/lib/config";
-import { SettingsSectionForm } from "@/components/admin/SettingsSectionForm";
+import { SettingsTabs } from "@/components/admin/SettingsTabs";
 import { SettingsDriftBanner } from "@/components/admin/SettingsDriftBanner";
 
 export const runtime = "nodejs";
@@ -15,12 +14,12 @@ export default async function AdminSettingsPage() {
   if (!user) redirect("/sign-in");
   if (user.role !== "admin") {
     return (
-      <main className="mx-auto max-w-3xl p-8">
+      <div className="mx-auto max-w-3xl p-6">
         <h1 className="text-lg font-semibold">Admins only</h1>
         <p className="mt-2 text-sm text-[color:var(--muted)]">
           Settings are managed by the admin that set up this instance.
         </p>
-      </main>
+      </div>
     );
   }
 
@@ -40,9 +39,9 @@ export default async function AdminSettingsPage() {
   }
 
   return (
-    <>
+    <div>
       <SettingsDriftBanner role={user.role} />
-      <main className="mx-auto max-w-4xl p-6">
+      <div className="mx-auto max-w-6xl p-6">
       <header className="mb-6 flex items-center justify-between">
         <div>
           <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--muted)]">
@@ -54,24 +53,10 @@ export default async function AdminSettingsPage() {
             Changes are picked up without a restart.
           </p>
         </div>
-        <Link
-          href="/admin/ops"
-          className="text-xs text-[color:var(--muted)] hover:underline"
-        >
-          ← back to admin ops
-        </Link>
       </header>
 
-      <div className="space-y-4">
-        {SETTINGS.map((section) => (
-          <SettingsSectionForm
-            key={section.id}
-            section={section}
-            initialValues={currentValues}
-          />
-        ))}
-      </div>
-    </main>
-    </>
+      <SettingsTabs sections={SETTINGS} initialValues={currentValues} />
+    </div>
+    </div>
   );
 }

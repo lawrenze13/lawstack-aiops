@@ -142,26 +142,20 @@ export default async function AdminOpsPage() {
   );
 
   return (
-    <>
-    <SettingsDriftBanner role={user.role} />
-    <main className="flex min-h-screen flex-col">
-      <header className="border-b border-[color:var(--border)] bg-[color:var(--background)]/80 px-6 py-3 backdrop-blur">
-        <div className="flex items-center justify-between">
+    <div>
+      <SettingsDriftBanner role={user.role} />
+      <div className="mx-auto max-w-6xl p-6">
+        <header className="mb-6 flex items-start justify-between gap-6">
           <div>
-            <Link
-              href="/"
-              className="text-xs text-[color:var(--muted)] hover:underline"
-            >
-              ← Board
-            </Link>
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--muted)]">
+              admin · ops
+            </div>
             <div className="mt-1 flex items-center gap-3">
-              <h1 className="font-mono text-[11px] uppercase tracking-[0.18em] text-[color:var(--muted)]">
-                admin · ops
-              </h1>
+              <h1 className="text-xl font-semibold">Live runs &amp; health</h1>
               <AutoRefresh intervalMs={15_000} />
             </div>
           </div>
-          <div className="flex items-center gap-6 text-xs">
+          <div className="flex flex-wrap items-center justify-end gap-x-6 gap-y-2 text-xs">
             <Stat label="Live runs" value={String(liveRunCount)} />
             <Stat
               label="Stuck"
@@ -183,10 +177,9 @@ export default async function AdminOpsPage() {
               title={worktreeUsage.error ?? undefined}
             />
           </div>
-        </div>
-      </header>
+        </header>
 
-      <section className="grid grid-cols-12 gap-4 p-4">
+        <section className="grid grid-cols-12 gap-4">
         <Panel title={`Stuck runs (${stuckRuns.length})`} className="col-span-12">
           {stuckRuns.length === 0 ? (
             <p className="px-3 py-2 text-xs text-[color:var(--muted)]">
@@ -219,7 +212,7 @@ export default async function AdminOpsPage() {
           )}
         </Panel>
 
-        <Panel title={`Failed runs (last 24h · ${recentFailed.length})`} className="col-span-7">
+        <Panel title={`Failed runs (last 24h · ${recentFailed.length})`} className="col-span-12 lg:col-span-7">
           {recentFailed.length === 0 ? (
             <p className="px-3 py-2 text-xs text-[color:var(--muted)]">
               None.
@@ -250,7 +243,7 @@ export default async function AdminOpsPage() {
           )}
         </Panel>
 
-        <Panel title="Cost by day (last 30d)" className="col-span-5">
+        <Panel title="Cost by day (last 30d)" className="col-span-12 lg:col-span-5">
           <Table
             headers={["day", "runs", "total"]}
             rows={costByDay.map((d) => [
@@ -302,9 +295,9 @@ export default async function AdminOpsPage() {
             ])}
           />
         </Panel>
-      </section>
-    </main>
-    </>
+        </section>
+      </div>
+    </div>
   );
 }
 

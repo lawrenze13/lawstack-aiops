@@ -15,6 +15,13 @@
       "when": 1776847114034,
       "tag": "0001_yellow_hercules",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1777400000000,
+      "tag": "0002_user_prefs_and_notifications_seen",
+      "breakpoints": true
     }
   ]
 }

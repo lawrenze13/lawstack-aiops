@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { JetBrains_Mono, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
 import { ToastHost } from "@/components/toast/ToastHost";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
+import { NavigationProgress } from "@/components/nav/NavigationProgress";
 
 // "Signal room" typography per the heroui-migration plan:
 //   - Body = JetBrains Mono (dense, monospace-forward operator console feel)
@@ -40,6 +42,9 @@ export default function RootLayout({
     >
       <body>
         <ThemeProvider>
+          <Suspense fallback={null}>
+            <NavigationProgress />
+          </Suspense>
           <ToastHost>{children}</ToastHost>
         </ThemeProvider>
       </body>

@@ -27,15 +27,20 @@ export async function AppShell({ children }: Props) {
   if (!user) redirect("/sign-in");
 
   return (
-    <div className="flex min-h-screen">
+    // On desktop (lg+) the shell is fixed to the viewport and only the
+    // <main> scrolls. On mobile (<lg) the outer height constraint is
+    // lifted so the body scrolls normally — the sticky mobile top-bar
+    // stays at the top while content scrolls under it.
+    <div className="flex lg:h-screen lg:overflow-hidden">
       {/* Desktop sidebar */}
-      <aside className="hidden lg:block">
+      <aside className="hidden shrink-0 lg:block">
         <Sidebar user={user} />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Mobile top bar */}
-        <header className="flex items-center justify-between border-b border-[color:var(--border)] bg-[color:var(--background)]/80 px-4 py-2 backdrop-blur lg:hidden">
+        {/* Mobile top bar — sticky so the burger stays reachable.
+            Height matches every page's top header (h-14). */}
+        <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-[color:var(--border)] bg-[color:var(--background)]/80 px-4 backdrop-blur lg:hidden">
           <MobileDrawer>
             <Sidebar user={user} />
           </MobileDrawer>
@@ -43,7 +48,7 @@ export async function AppShell({ children }: Props) {
           <span className="w-9" aria-hidden />
         </header>
 
-        <main className="min-w-0 flex-1">{children}</main>
+        <main className="min-w-0 flex-1 lg:overflow-y-auto">{children}</main>
       </div>
     </div>
   );

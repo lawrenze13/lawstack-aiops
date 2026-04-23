@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Brandmark } from "@/components/brand/Brandmark";
 import { SidebarItem } from "./SidebarItem";
 import { SidebarFooter } from "./SidebarFooter";
+import { NotificationsButton } from "./NotificationsButton";
 import {
   IconBoard,
   IconDashboard,
@@ -31,7 +32,9 @@ export function Sidebar({ user }: Props) {
       aria-label="Primary"
       className="flex h-screen w-60 shrink-0 flex-col border-r border-[color:var(--border)] bg-[color:var(--surface)]"
     >
-      <div className="border-b border-[color:var(--border)] px-4 py-4">
+      {/* Matches every page's top header height (h-14) so the
+          border-bottom line continues visually across sidebar → main. */}
+      <div className="flex h-14 items-center border-b border-[color:var(--border)] px-4">
         <Link href="/" className="inline-flex" aria-label="Go to board">
           <Brandmark size={22} />
         </Link>
@@ -77,6 +80,10 @@ export function Sidebar({ user }: Props) {
             />
           </SidebarSection>
         ) : null}
+
+        <SidebarSection>
+          <NotificationsButton />
+        </SidebarSection>
       </div>
 
       <SidebarFooter user={user} />

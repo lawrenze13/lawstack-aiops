@@ -1,7 +1,7 @@
 import { auth } from "@/server/auth/config";
 import { db } from "@/server/db/client";
 import { tasks } from "@/server/db/schema";
-import { desc, ne } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { Board } from "@/components/board/Board";
 import { enrichTask } from "@/server/lib/enrichTask";
 import { SettingsDriftBanner } from "@/components/admin/SettingsDriftBanner";
@@ -10,10 +10,12 @@ import { MaintenanceGate } from "@/components/admin/MaintenanceGate";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export default async function TeamBoardPage() {
+export default async function HomePage() {
   const session = await auth();
-  const role = (session?.user as { role?: string } | undefined)?.role;
-  const isAdmin = role === "admin";
+  const user = session?.user as { id?: string; role?: string } | undefined;
+  const userId = user?.id;
+  if (!userId) return null;
+  const role = user?.role;
 
   const rows = db
     .select({
@@ -25,15 +27,14 @@ export default async function TeamBoardPage() {
       currentRunId: tasks.currentRunId,
     })
     .from(tasks)
-    .where(ne(tasks.status, "archived"))
+    .where(and(eq(tasks.ownerId, userId), ne(tasks.status, "archived")))
     .orderBy(desc(tasks.updatedAt))
     .all();
 
-  const enriched = rows.map((t) => enrichTask(t));
   return (
     <MaintenanceGate role={role}>
       <SettingsDriftBanner role={role} />
-      <Board initialTasks={enriched} scope="all" isAdmin={isAdmin} />
+      <Board initialTasks={rows.map(enrichTask)} scope="me" />
     </MaintenanceGate>
   );
 }
