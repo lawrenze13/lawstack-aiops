@@ -187,27 +187,35 @@ else
 	run "sudo -u '$RUNAS_USER' bash -lc 'source \$HOME/.nvm/nvm.sh && nvm install 20 && nvm alias default 20 >/dev/null'"
 fi
 
-NODE_BIN_DIR=$(sudo -u "$USER_NAME" bash -lc 'source $HOME/.nvm/nvm.sh && nvm use 20 >/dev/null && dirname $(which npm)')
-[[ -x "$NODE_BIN_DIR/npm" ]] || fail "could not resolve npm path for $USER_NAME (got: $NODE_BIN_DIR/npm)"
+# Resolve the npm path for whichever user will run the service/process.
+if [[ "$MODE" == "local" ]]; then
+	NODE_BIN_DIR=$(bash -lc 'source $HOME/.nvm/nvm.sh && nvm use 20 >/dev/null && dirname $(which npm)')
+else
+	NODE_BIN_DIR=$(sudo -u "$USER_NAME" bash -lc 'source $HOME/.nvm/nvm.sh && nvm use 20 >/dev/null && dirname $(which npm)')
+fi
+[[ -x "$NODE_BIN_DIR/npm" ]] || fail "could not resolve npm path for $RUNAS_USER (got: $NODE_BIN_DIR/npm)"
 log "node bin dir: $NODE_BIN_DIR"
 
-# Install Claude CLI globally for the service user. The orchestrator
-# spawns `claude` as a subprocess for every agent run — without it
-# on the user's PATH, runs fail with ENOENT.
-if ! sudo -u "$USER_NAME" bash -lc 'source $HOME/.nvm/nvm.sh && nvm use 20 >/dev/null && command -v claude >/dev/null'; then
-	log "installing @anthropic-ai/claude-code globally for $USER_NAME"
-	run "sudo -u '$USER_NAME' bash -lc '
-		source \$HOME/.nvm/nvm.sh && nvm use 20 >/dev/null &&
-		npm install -g @anthropic-ai/claude-code
-	'"
+# Install Claude CLI globally for whichever user will spawn agent runs.
+# Without `claude` on PATH, agent runs fail with ENOENT at subprocess spawn.
+if [[ "$MODE" == "local" ]]; then
+	HAS_CLAUDE=$(bash -lc 'source $HOME/.nvm/nvm.sh && nvm use 20 >/dev/null && command -v claude >/dev/null && echo yes || echo no')
+else
+	HAS_CLAUDE=$(sudo -u "$USER_NAME" bash -lc 'source $HOME/.nvm/nvm.sh && nvm use 20 >/dev/null && command -v claude >/dev/null && echo yes || echo no')
+fi
+if [[ "$HAS_CLAUDE" != "yes" ]]; then
+	log "installing @anthropic-ai/claude-code globally for $RUNAS_USER"
+	if [[ "$MODE" == "local" ]]; then
+		run "bash -lc 'source \$HOME/.nvm/nvm.sh && nvm use 20 >/dev/null && npm install -g @anthropic-ai/claude-code'"
+	else
+		run "sudo -u '$USER_NAME' bash -lc 'source \$HOME/.nvm/nvm.sh && nvm use 20 >/dev/null && npm install -g @anthropic-ai/claude-code'"
+	fi
 fi
 
-# Verify claude CLI is on the service user's PATH — this PATH is what
-# systemd will inherit via the nvm-aware Environment=PATH line in the
-# unit template, so `claude` binary MUST be in $NODE_BIN_DIR.
+# Verify claude CLI lives at the PATH we'll hand to the service.
 if ! [[ -x "$NODE_BIN_DIR/claude" ]]; then
 	warn "claude CLI not found at $NODE_BIN_DIR/claude after install"
-	warn "runs will fail until the user installs: npm install -g @anthropic-ai/claude-code"
+	warn "agent runs will fail until you: npm install -g @anthropic-ai/claude-code"
 fi
 
 # ─── Directories ─────────────────────────────────────────────────────────────
