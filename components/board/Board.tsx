@@ -9,8 +9,6 @@ import {
 } from "@dnd-kit/react";
 import { Chip } from "@heroui/react/chip";
 import { NewTaskDialog } from "./NewTaskDialog";
-import { ThemeToggle } from "@/components/theme/ThemeToggle";
-import { Brandmark } from "@/components/brand/Brandmark";
 
 const LANES = [
   { id: "ticket", label: "Ticket" },
@@ -48,10 +46,9 @@ type Task = {
 type Props = {
   initialTasks: Task[];
   scope: "me" | "all";
-  isAdmin?: boolean;
 };
 
-export function Board({ initialTasks, scope, isAdmin }: Props) {
+export function Board({ initialTasks, scope }: Props) {
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
@@ -83,35 +80,31 @@ export function Board({ initialTasks, scope, isAdmin }: Props) {
   };
 
   return (
-    <div className="flex h-screen flex-col">
-      <header className="flex items-center justify-between border-b border-[color:var(--border)] bg-[color:var(--background)]/80 px-6 py-3 backdrop-blur">
-        <div className="flex items-center gap-5">
-          <Brandmark size={22} />
-          <nav className="flex gap-1 text-sm">
-            <NavLink href="/" active={scope === "me"}>
-              My Tasks
-            </NavLink>
-            <NavLink href="/team" active={scope === "all"}>
-              Team Board
-            </NavLink>
-            {isAdmin ? <NavLink href="/admin/ops">⚙ Admin</NavLink> : null}
-          </nav>
+    // Desktop: AppShell's main is the scroll container (h-screen) so
+    // h-full here = viewport height. Mobile: AppShell main has no
+    // fixed height, so h-full collapses — give the board an explicit
+    // min-height of (100vh − sticky-top-bar) so lane columns actually
+    // have vertical room to render.
+    <div className="flex h-full min-h-[calc(100vh-56px)] flex-col lg:min-h-0">
+      <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-[color:var(--border)] bg-[color:var(--background)]/80 px-4 backdrop-blur md:px-6">
+        <div className="flex min-w-0 items-baseline gap-3">
+          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--accent)]">
+            {scope === "me" ? "01" : "—"}
+          </span>
+          <h1 className="truncate text-base font-semibold">
+            {scope === "me" ? "My Tasks" : "Team Board"}
+          </h1>
+          <span className="hidden font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--muted)] md:inline">
+            board
+          </span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-3">
           {error ? (
-            <span className="text-xs text-red-700" title={error}>
+            <span className="hidden text-xs text-red-700 md:inline" title={error}>
               {error.slice(0, 80)}
               {error.length > 80 ? "…" : ""}
             </span>
           ) : null}
-          <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--muted)]">
-            <span className="relative inline-flex">
-              <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--accent)]" />
-              <span className="absolute inline-flex h-1.5 w-1.5 animate-ping rounded-full bg-[color:var(--accent)] opacity-75" />
-            </span>
-            online
-          </span>
-          <ThemeToggle />
           <NewTaskDialog onCreated={refresh} />
         </div>
       </header>
@@ -154,77 +147,76 @@ export function Board({ initialTasks, scope, isAdmin }: Props) {
           }
         }}
       >
-        <section className="flex flex-1 gap-3 overflow-x-auto p-4">
-          {LANES.map((lane) => (
-            <LaneColumn
-              key={lane.id}
-              id={lane.id}
-              label={lane.label}
-              count={tasksByLane[lane.id].length}
-            >
-              {tasksByLane[lane.id].length > 0 ? (
-                tasksByLane[lane.id].map((t) => (
-                  <DraggableCard key={t.id} task={t} />
-                ))
-              ) : (
-                <p className="px-1 py-3 text-xs text-[color:var(--muted)]">
-                  No cards
-                </p>
-              )}
-            </LaneColumn>
-          ))}
+        {/* 4×2 grid so all 8 lanes fit without horizontal scroll on
+            desktop. Reading order = flow order: left→right, then wrap
+            down. The lane header number (01..08) and the → / ↩ arrows
+            make the progression explicit even when the grid wraps. */}
+        <section className="grid flex-1 grid-cols-1 gap-3 overflow-y-auto p-4 sm:grid-cols-2 lg:grid-cols-4">
+          {LANES.map((lane, i) => {
+            const isLast = i === LANES.length - 1;
+            const isRowEnd = (i + 1) % 4 === 0 && !isLast;
+            return (
+              <LaneColumn
+                key={lane.id}
+                id={lane.id}
+                number={i + 1}
+                label={lane.label}
+                count={tasksByLane[lane.id].length}
+                nextArrow={isLast ? "end" : isRowEnd ? "wrap" : "right"}
+              >
+                {tasksByLane[lane.id].length > 0 ? (
+                  tasksByLane[lane.id].map((t) => (
+                    <DraggableCard key={t.id} task={t} />
+                  ))
+                ) : (
+                  <p className="px-1 py-3 text-xs text-[color:var(--muted)]">
+                    No cards
+                  </p>
+                )}
+              </LaneColumn>
+            );
+          })}
         </section>
       </DragDropProvider>
     </div>
   );
 }
 
-/**
- * Text-style nav link. HeroUI v3 Button is not polymorphic (no `as="a"`
- * prop), so we use a plain `<a>` styled to match the "ghost" (inactive)
- * and "secondary" (active) Button variants visually.
- */
-function NavLink({
-  href,
-  active,
-  children,
-}: {
-  href: string;
-  active?: boolean;
-  children: React.ReactNode;
-}) {
-  const base =
-    "inline-flex items-center justify-center rounded-md px-3 py-1 text-sm font-medium transition-colors";
-  const tone = active
-    ? "bg-[color:var(--surface-secondary)] text-[color:var(--foreground)]"
-    : "text-[color:var(--muted)] hover:bg-[color:var(--surface-secondary)]/60 hover:text-[color:var(--foreground)]";
-  return (
-    <a href={href} className={`${base} ${tone}`}>
-      {children}
-    </a>
-  );
-}
-
 function LaneColumn({
   id,
+  number,
   label,
   count,
+  nextArrow,
   children,
 }: {
   id: LaneId;
+  number: number;
   label: string;
   count: number;
+  /** "right" = flow continues to the lane to the right.
+      "wrap"  = lane is last-in-row, flow continues on the row below.
+      "end"   = terminal lane (done), no arrow. */
+  nextArrow: "right" | "wrap" | "end";
   children: React.ReactNode;
 }) {
   const { ref, isDropTarget } = useDroppable({ id, accept: "item" });
+  const paddedNum = String(number).padStart(2, "0");
   return (
     <div
-      className={`flex w-72 shrink-0 flex-col rounded-lg border bg-[color:var(--surface-secondary)]/40 transition-colors ${
-        isDropTarget ? "border-blue-500/60 bg-blue-500/5" : "border-[color:var(--border)]"
+      className={`relative flex min-h-[260px] flex-col rounded-lg border bg-[color:var(--surface-secondary)]/40 transition-colors ${
+        isDropTarget
+          ? "border-[color:var(--accent)]/70 bg-[color:var(--accent)]/5"
+          : "border-[color:var(--border)]"
       }`}
     >
       <div className="flex items-center justify-between border-b border-[color:var(--border)] px-3 py-2">
-        <span className="text-sm font-medium">{label}</span>
+        <div className="flex items-baseline gap-2">
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--accent)]">
+            {paddedNum}
+          </span>
+          <span className="text-sm font-medium">{label}</span>
+        </div>
         <span className="text-xs text-[color:var(--muted)]">{count}</span>
       </div>
       <div
@@ -233,6 +225,25 @@ function LaneColumn({
       >
         {children}
       </div>
+
+      {/* Flow arrow pointing to the next lane. Hidden on mobile 1-col
+          layout, visible on sm+ where columns actually sit side-by-side. */}
+      {nextArrow !== "end" ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute z-10 hidden items-center justify-center text-[color:var(--muted)] sm:flex"
+          style={
+            nextArrow === "right"
+              ? { right: "-0.65rem", top: "50%", transform: "translateY(-50%)" }
+              : // wrap: sits under the column, hinting the row below.
+                { bottom: "-0.9rem", right: "0.5rem" }
+          }
+        >
+          <span className="flex h-5 w-5 items-center justify-center rounded-full border border-[color:var(--border)] bg-[color:var(--background)] font-mono text-[10px]">
+            {nextArrow === "right" ? "→" : "↴"}
+          </span>
+        </span>
+      ) : null}
     </div>
   );
 }

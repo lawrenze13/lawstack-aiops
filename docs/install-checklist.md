@@ -78,6 +78,12 @@ Set up ONCE per install in Google Cloud Console:
    - [ ] Admin link visible in header
    - [ ] `/admin/settings` opens without "admin only" block
    - [ ] `/admin/ops` shows `0 active runs` on a fresh DB
+   - [ ] `/dashboard` renders 4 tiles — ops/cost/throughput/activity
+         (all zeroes on a fresh install, no empty-state crash)
+   - [ ] `/profile` renders three sections — identity (with your
+         Google name pre-filled), agent defaults, notification prefs
+   - [ ] Sidebar is visible on `/dashboard`, `/profile`, `/admin/*`
+         but NOT on `/`, `/team`, `/cards/:id`
    - [ ] Hit the setup URL a second time — should redirect to
          `/sign-in`. Token burn confirmed.
 

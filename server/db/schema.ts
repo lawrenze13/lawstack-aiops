@@ -208,7 +208,20 @@ export const artifacts = sqliteTable(
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
     kind: text("kind", {
-      enum: ["brainstorm", "plan", "review", "implementation"],
+      enum: [
+        // Core CE pipeline artifacts — consumed by Approve & PR.
+        "brainstorm",
+        "plan",
+        "review",
+        "implementation",
+        // Supplementary review artifacts — produced by specialist agents
+        // (security, perf, deploy-check, research). Not gated by the
+        // Approve flow but visible in the ArtifactPanel.
+        "research",
+        "security-review",
+        "perf-review",
+        "deploy-check",
+      ],
     }).notNull(),
     filename: text("filename").notNull(),
     markdown: text("markdown").notNull(),
@@ -307,6 +320,34 @@ export const settings = sqliteTable("settings", {
     .default(sql`(unixepoch() * 1000)`),
 });
 
+// Per-user preferences: agent defaults (overlay on AGENT_OVERRIDES at
+// run start) + notification toggles. One row per user, lazily created
+// on first save.
+export const userPrefs = sqliteTable("user_prefs", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  // JSON: Record<agentId, { model?, costWarnUsd?, costKillUsd? }>
+  agentOverridesJson: text("agent_overrides_json").notNull().default("{}"),
+  // JSON: { onComplete?: bool, onFailure?: bool, onAwaitingInput?: bool }
+  notificationsJson: text("notifications_json").notNull().default("{}"),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+});
+
+// Tracks the highest audit_log.id each user has acknowledged. Unread
+// count = COUNT(audit_log) WHERE id > last_seen_audit_id (scoped).
+export const userNotificationsSeen = sqliteTable("user_notifications_seen", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  lastSeenAuditId: integer("last_seen_audit_id").notNull().default(0),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+});
+
 // Single-row bootstrap token for first-run /setup access. The CHECK
 // constraint enforces exactly one row; instrumentation.ts inserts (id=1,
 // token=uuid) if users is empty. Burned by the auth signIn callback
@@ -336,3 +377,5 @@ export type PrRecord = typeof prRecords.$inferSelect;
 export type AuditLogRow = typeof auditLog.$inferSelect;
 export type SettingRow = typeof settings.$inferSelect;
 export type SetupTokenRow = typeof setupTokens.$inferSelect;
+export type UserPrefsRow = typeof userPrefs.$inferSelect;
+export type UserNotificationsSeenRow = typeof userNotificationsSeen.$inferSelect;

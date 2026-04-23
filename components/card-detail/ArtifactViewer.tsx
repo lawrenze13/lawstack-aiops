@@ -6,7 +6,15 @@ import remarkGfm from "remark-gfm";
 import { Chip } from "@heroui/react/chip";
 
 type Props = {
-  kind: "brainstorm" | "plan" | "review" | "implementation";
+  kind:
+    | "brainstorm"
+    | "plan"
+    | "review"
+    | "implementation"
+    | "research"
+    | "security-review"
+    | "perf-review"
+    | "deploy-check";
   filename: string;
   markdown: string;
   isStale: boolean;

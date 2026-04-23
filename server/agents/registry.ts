@@ -44,6 +44,14 @@ export type AgentConfig = {
    * context: jiraKey, title, description, plus optional priorArtifacts.
    */
   buildPrompt: (ctx: PromptContext) => string;
+  /**
+   * What artifact this agent writes. When set, `persistArtifactsForRun`
+   * reads from `<worktree>/<dir>/<jiraKey>-<kind>.md` instead of using
+   * the lane-based default (docs/<lane>s). Leave unset for agents whose
+   * output maps naturally from their lane (ce:brainstorm, ce:plan,
+   * ce:review, ce:work).
+   */
+  produces?: { kind: string; dir: string };
 };
 
 export type PromptContext = {
@@ -472,6 +480,140 @@ When the implementation is complete:
 `;
 };
 
+// ─── Thin wrappers around CE plugin skills ──────────────────────────────────
+// Each writes its output to a deterministic filename under docs/ so the
+// artifact pipeline (persistArtifacts + LANE_TO_KIND) can pick it up
+// without special-casing. Kept short — the skill contains the methodology,
+// the prompt just stages the context and commits the output.
+
+const researchScoutPrompt = (ctx: PromptContext): string => {
+  return `# Research scout for ${ctx.jiraKey}
+
+You are preparing research input for a later brainstorm/plan run. Do not
+design a solution yet — gather the facts.
+
+## Ticket
+**${ctx.title}**
+
+${ctx.description}
+
+## Instructions
+Use these skills in parallel where useful:
+- \`compound-engineering:research:repo-research-analyst\` — existing
+  patterns, CLAUDE.md guidance, technology familiarity.
+- \`compound-engineering:research:learnings-researcher\` — search
+  \`docs/solutions/\` for documented fixes and lessons. Flag any that
+  apply.
+- \`compound-engineering:research:git-history-analyzer\` — when the
+  ticket references existing code, trace who/why/when via git log +
+  blame.
+
+## Output
+Write findings to \`docs/research/${ctx.jiraKey}-research.md\` with
+sections:
+- **Relevant existing code** (file paths + line numbers)
+- **Prior learnings that apply** (from docs/solutions, if any)
+- **Conventions + CLAUDE.md points to respect**
+- **Open questions for the brainstorm**
+
+Keep it factual. No solutioning. The brainstorm step consumes this.
+`;
+};
+
+const securityReviewPrompt = (ctx: PromptContext): string => {
+  return `# Security review for ${ctx.jiraKey}
+
+You are reviewing the diff on this branch for security issues. Use the
+\`compound-engineering:review:security-sentinel\` skill for the full
+methodology.
+
+## Ticket
+**${ctx.title}**
+
+${ctx.description}
+
+## Scope
+Compare against \`origin/main\`. Review only changed files. Look for:
+- Input validation gaps (user-supplied data flowing to DB / shell / FS)
+- Auth / authz holes (handlers that don't check role; session checks)
+- Hard-coded secrets or credentials in diffs
+- OWASP top-10 category issues
+- Prompt injection surfaces if the diff touches agent code
+
+## Output
+Write to \`docs/reviews/${ctx.jiraKey}-security-review.md\`:
+- **Verdict:** PASS | P1 | P2_BLOCKER (same scale as ce:review)
+- **Findings** — each with file:line, severity, exploit scenario, fix
+- **Not an issue** — a short list of things you checked and cleared
+
+Keep findings concrete. A finding without a concrete exploit is noise.
+`;
+};
+
+const perfReviewPrompt = (ctx: PromptContext): string => {
+  return `# Performance review for ${ctx.jiraKey}
+
+You are reviewing the diff for performance issues. Use the
+\`compound-engineering:review:performance-oracle\` skill.
+
+## Ticket
+**${ctx.title}**
+
+${ctx.description}
+
+## Scope
+Compare against \`origin/main\`. Look for:
+- N+1 queries (loops that fetch per-row; missing \`includes\` / joins)
+- Algorithmic issues (nested loops on growable input, O(n²) hiding in
+  array filters, naïve sorts)
+- Memory bloat (unbounded in-memory caches, large blobs read whole)
+- Blocking I/O on request path (sync fs, unbounded external calls)
+- Missing indexes on new queries
+
+Skip cosmetic "this could be marginally faster" critiques. Focus on
+changes that would bite at 10× or 100× traffic.
+
+## Output
+Write to \`docs/reviews/${ctx.jiraKey}-perf-review.md\`:
+- **Verdict:** PASS | P1 | P2_BLOCKER
+- **Hotspots** — file:line, complexity note, impact at scale, suggested
+  fix
+- **Benchmarked / not worth** — things you considered and cleared
+`;
+};
+
+const deployCheckPrompt = (ctx: PromptContext): string => {
+  return `# Deployment verification for ${ctx.jiraKey}
+
+You are producing a Go/No-Go deploy checklist for this branch. Use the
+\`compound-engineering:review:deployment-verification-agent\` skill.
+
+## Ticket
+**${ctx.title}**
+
+${ctx.description}
+
+## Scope
+Assume the PR is about to merge to main and ship to production.
+Identify:
+- Migrations to run (and their order)
+- SQL verification queries to confirm success post-deploy
+- Config / env vars required for the new code to work
+- Rollback procedure if things go sideways
+- Monitoring plan — specific log queries, metrics, dashboards to watch
+- Validation window and signals to watch
+
+## Output
+Write to \`docs/deploy/${ctx.jiraKey}-deploy-check.md\`:
+- **Verdict:** GO | NO-GO | GO-WITH-CAVEATS
+- **Pre-merge checks** — queries to run BEFORE merging
+- **Post-deploy monitoring** — what to watch for the first 24h
+- **Rollback** — specific commands if we need to revert
+
+Concrete queries/commands only. \`"watch for errors"\` is not a plan.
+`;
+};
+
 export const AGENTS = {
   "ce:brainstorm": {
     id: "ce:brainstorm",
@@ -481,6 +623,16 @@ export const AGENTS = {
     model: "claude-sonnet-4-6",
     maxTurns: 30,
     buildPrompt: brainstormPrompt,
+  },
+  "ce:research": {
+    id: "ce:research",
+    name: "CE Research scout",
+    lanes: ["brainstorm"],
+    skillHint: "compound-engineering:research:repo-research-analyst",
+    model: "claude-sonnet-4-6",
+    maxTurns: 20,
+    buildPrompt: researchScoutPrompt,
+    produces: { kind: "research", dir: "docs/research" },
   },
   "ce:plan": {
     id: "ce:plan",
@@ -499,6 +651,36 @@ export const AGENTS = {
     model: "claude-sonnet-4-6",
     maxTurns: 30,
     buildPrompt: reviewPrompt,
+  },
+  "security:review": {
+    id: "security:review",
+    name: "Security Sentinel",
+    lanes: ["review"],
+    skillHint: "compound-engineering:review:security-sentinel",
+    model: "claude-sonnet-4-6",
+    maxTurns: 20,
+    buildPrompt: securityReviewPrompt,
+    produces: { kind: "security-review", dir: "docs/reviews" },
+  },
+  "perf:review": {
+    id: "perf:review",
+    name: "Performance Oracle",
+    lanes: ["review"],
+    skillHint: "compound-engineering:review:performance-oracle",
+    model: "claude-sonnet-4-6",
+    maxTurns: 20,
+    buildPrompt: perfReviewPrompt,
+    produces: { kind: "perf-review", dir: "docs/reviews" },
+  },
+  "deploy:check": {
+    id: "deploy:check",
+    name: "Deployment Verification",
+    lanes: ["review"],
+    skillHint: "compound-engineering:review:deployment-verification-agent",
+    model: "claude-sonnet-4-6",
+    maxTurns: 20,
+    buildPrompt: deployCheckPrompt,
+    produces: { kind: "deploy-check", dir: "docs/deploy" },
   },
   "ce:work": {
     id: "ce:work",
@@ -534,6 +716,14 @@ type AgentOverrideFields = {
   costWarnUsd?: number;
   costKillUsd?: number;
   model?: string;
+  /**
+   * Extra instructions appended verbatim to the built-in prompt when this
+   * agent runs. Users set this via Profile → Agent defaults; admins via
+   * the AGENT_OVERRIDES JSON blob. The base prompt is never replaced —
+   * the append is concatenated under an "Operator notes" heading so the
+   * agent always starts from the PR-reviewed, tested prompt.
+   */
+  promptAppend?: string;
 };
 
 function parseAgentOverrides(
@@ -550,25 +740,68 @@ function parseAgentOverrides(
   return {};
 }
 
-export function getAgent(id: string): AgentConfig | undefined {
+export function getAgent(
+  id: string,
+  opts: { userId?: string | null } = {},
+): AgentConfig | undefined {
   const base = (AGENTS as Record<string, AgentConfig>)[id];
   if (!base) return undefined;
 
-  // Lazy import to avoid a circular dep at module-load time (config.ts →
+  // Lazy imports to avoid circular deps at module-load time (config.ts →
   // db/client → .env chain). By the time getAgent is called at runtime,
   // both modules are resolved.
-  //
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { getConfig } = require("@/server/lib/config") as typeof import("@/server/lib/config");
-  const overrides = parseAgentOverrides(getConfig("AGENT_OVERRIDES") ?? "{}");
-  const o = overrides[id] ?? {};
+  const instance = parseAgentOverrides(getConfig("AGENT_OVERRIDES") ?? "{}");
+  const instanceOverrides = instance[id] ?? {};
+
+  // Layer per-user overrides on top (Phase 4 sidebar plan). User prefs
+  // win over instance defaults. When no userId is known we skip the DB
+  // hit entirely, so legacy call sites continue to behave identically.
+  let userOverrides: AgentOverrideFields = {};
+  if (opts.userId) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { readUserPrefs } = require("@/server/lib/userPrefs") as typeof import("@/server/lib/userPrefs");
+      const prefs = readUserPrefs(opts.userId);
+      userOverrides = prefs.agentOverrides[id] ?? {};
+    } catch {
+      userOverrides = {};
+    }
+  }
+
+  const pickNumber = (
+    ...vals: Array<number | undefined>
+  ): number | undefined => vals.find((v) => typeof v === "number");
+  const pickString = (
+    ...vals: Array<string | undefined>
+  ): string | undefined => vals.find((v) => typeof v === "string");
+
+  // Compose the prompt: base + optional operator-supplied append. User's
+  // append wins over the instance-wide append (if both exist, user's is
+  // used). The base prompt is never replaced — the text is always
+  // additive and clearly scoped under an "Operator notes" heading.
+  const appendText = pickString(
+    userOverrides.promptAppend,
+    instanceOverrides.promptAppend,
+  );
+  const baseBuildPrompt = base.buildPrompt;
+  const buildPrompt: AgentConfig["buildPrompt"] = appendText
+    ? (ctx) =>
+        `${baseBuildPrompt(ctx)}\n\n## Operator notes\n\n${appendText.trim()}\n`
+    : baseBuildPrompt;
+
   return {
     ...base,
-    model: typeof o.model === "string" ? o.model : base.model,
+    model:
+      pickString(userOverrides.model, instanceOverrides.model) ?? base.model,
     costWarnUsd:
-      typeof o.costWarnUsd === "number" ? o.costWarnUsd : base.costWarnUsd,
+      pickNumber(userOverrides.costWarnUsd, instanceOverrides.costWarnUsd) ??
+      base.costWarnUsd,
     costKillUsd:
-      typeof o.costKillUsd === "number" ? o.costKillUsd : base.costKillUsd,
+      pickNumber(userOverrides.costKillUsd, instanceOverrides.costKillUsd) ??
+      base.costKillUsd,
+    buildPrompt,
   };
 }
 

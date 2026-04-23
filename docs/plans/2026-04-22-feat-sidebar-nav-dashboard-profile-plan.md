@@ -257,8 +257,8 @@ kicking off the run), so the hook-up is mechanical.
 Scaffolds the route-group split without moving any page yet — ship
 as a no-op PR so the reshuffle can land in one commit.
 
-- [ ] `app/(board)/layout.tsx` — pass-through layout (children only). *(Phase 2)*
-- [ ] `app/(sidebar)/layout.tsx` — imports `AppShell`, wraps children. *(Phase 2)*
+- [x] `app/(board)/layout.tsx` — pass-through layout (children only). *(Phase 2)*
+- [x] `app/(sidebar)/layout.tsx` — imports `AppShell`, wraps children. *(Phase 2)*
 - [x] `components/nav/AppShell.tsx` — server wrapper that owns the
       top-level grid: `<Sidebar />` on desktop, `<MobileDrawer />` on
       mobile, children in the content column.
@@ -276,122 +276,122 @@ as a no-op PR so the reshuffle can land in one commit.
 
 #### Phase 2: Move pages into groups, wire sidebar (1 day)
 
-- [ ] `git mv` pages:
+- [x] `git mv` pages:
   - `app/page.tsx` → `app/(board)/page.tsx`
   - `app/team/page.tsx` → `app/(board)/team/page.tsx`
   - `app/admin/ops/` → `app/(sidebar)/admin/ops/`
   - `app/admin/settings/` → `app/(sidebar)/admin/settings/`
-- [ ] Update any relative imports broken by the move.
-- [ ] `app/(sidebar)/layout.tsx` passes session+role to `<Sidebar>`.
-- [ ] Board header (`components/board/Board.tsx:86`) gets a new
+- [x] Update any relative imports broken by the move.
+- [x] `app/(sidebar)/layout.tsx` passes session+role to `<Sidebar>`.
+- [x] Board header (`components/board/Board.tsx:86`) gets a new
       "Dashboard →" NavLink for discoverability.
-- [ ] Drift banner (`components/admin/SettingsDriftBanner`) continues
+- [x] Drift banner (`components/admin/SettingsDriftBanner`) continues
       to render where it renders today (top of board pages + admin
       pages). The sidebar layout mounts it above its content area.
-- [ ] Exit gate: every current route still works; admins see admin
+- [x] Exit gate: every current route still works; admins see admin
       entries in the sidebar, members don't; theme toggle survived the
       move.
 
 #### Phase 3: Dashboard (`/dashboard`) (2 days)
 
-- [ ] `app/(sidebar)/dashboard/page.tsx` — server component; reads
+- [x] `app/(sidebar)/dashboard/page.tsx` — server component; reads
       session; renders 2×2 tile grid.
-- [ ] `components/dashboard/OpsHealthTile.tsx` — server component.
-- [ ] `components/dashboard/CostMeterTile.tsx` — server component;
+- [x] `components/dashboard/OpsHealthTile.tsx` — server component.
+- [x] `components/dashboard/CostMeterTile.tsx` — server component;
       `formatUsd()` helper; uses accent-green for well-under-budget.
-- [ ] `components/dashboard/ThroughputTile.tsx` — server component;
+- [x] `components/dashboard/ThroughputTile.tsx` — server component;
       inline SVG sparkline per lane (no charting dep).
-- [ ] `components/dashboard/ActivityFeedTile.tsx` — server component;
+- [x] `components/dashboard/ActivityFeedTile.tsx` — server component;
       renders actor avatar + action + time-ago + link to card.
-- [ ] `components/dashboard/DashboardAutoRefresh.tsx` — client shim
+- [x] `components/dashboard/DashboardAutoRefresh.tsx` — client shim
       of the existing `AutoRefresh` pattern; polls at 15s.
-- [ ] Empty states for each tile when the viewer has zero data.
-- [ ] Add indexes if missing: `audit_log.created_at`,
+- [x] Empty states for each tile when the viewer has zero data.
+- [x] Add indexes if missing: `audit_log.created_at`,
       `audit_log.task_id`, `runs.status`, `runs.heartbeat_at`.
       New migration `0003_dashboard_indexes.sql`.
-- [ ] Unit tests for viewer-scoped queries
+- [x] Unit tests for viewer-scoped queries
       (`tests/dashboardQueries.test.ts`): admin sees all vs member
       sees only own.
-- [ ] Exit gate: `/dashboard` loads in <300ms with ~50 runs seeded
+- [x] Exit gate: `/dashboard` loads in <300ms with ~50 runs seeded
       in a test DB.
 
 #### Phase 4: Profile (`/profile`) (1.5 days)
 
-- [ ] Migration `0004_user_prefs.sql` — `user_prefs` table.
-- [ ] `server/lib/userPrefs.ts` — `readUserPrefs(userId)` /
+- [x] Migration `0004_user_prefs.sql` — `user_prefs` table.
+- [x] `server/lib/userPrefs.ts` — `readUserPrefs(userId)` /
       `writeUserPrefs(userId, patch)`. UPSERT semantics.
-- [ ] `app/(sidebar)/profile/page.tsx` — server component; reads
+- [x] `app/(sidebar)/profile/page.tsx` — server component; reads
       user row + prefs; renders three sections.
-- [ ] `components/profile/IdentitySection.tsx` — client; editable
+- [x] `components/profile/IdentitySection.tsx` — client; editable
       display name, read-only email, theme toggle, sign-out.
-- [ ] `components/profile/AgentDefaultsSection.tsx` — client; one
+- [x] `components/profile/AgentDefaultsSection.tsx` — client; one
       row per agent in `AGENTS`; `model` select + `costWarnUsd` /
       `costKillUsd` numbers; "reset to instance default" chip.
-- [ ] `components/profile/NotificationPrefsSection.tsx` — client;
+- [x] `components/profile/NotificationPrefsSection.tsx` — client;
       three checkboxes (onComplete/onFailure/onAwaitingInput).
-- [ ] `app/api/profile/save/route.ts` — POST, auth-gated (viewer
+- [x] `app/api/profile/save/route.ts` — POST, auth-gated (viewer
       writes only their own row); validates with zod.
-- [ ] `server/agents/registry.ts:getAgent` — accept optional
+- [x] `server/agents/registry.ts:getAgent` — accept optional
       `{ userId }`, merge `user_prefs.agent_overrides_json` on top
       of instance overrides.
-- [ ] Every run-start call site threads `actorUserId` into
+- [x] Every run-start call site threads `actorUserId` into
       `getAgent()`. Audit all call sites (`grep -rn "getAgent(" server/`).
-- [ ] Unit test: user prefs win over instance overrides.
-- [ ] Exit gate: change my cost-warn default → next run warns at the
+- [x] Unit test: user prefs win over instance overrides.
+- [x] Exit gate: change my cost-warn default → next run warns at the
       new threshold without restart.
 
 #### Phase 5: Notifications tray (1.5 days)
 
-- [ ] Migration `0005_user_notifications_seen.sql`.
-- [ ] `components/nav/NotificationsButton.tsx` — bell icon + unread
+- [x] Migration `0005_user_notifications_seen.sql`.
+- [x] `components/nav/NotificationsButton.tsx` — bell icon + unread
       badge; client; polls `GET /api/notifications/unread-count`
       every 30s.
-- [ ] `components/nav/NotificationsPanel.tsx` — client; slide-out
+- [x] `components/nav/NotificationsPanel.tsx` — client; slide-out
       panel; lists events; "mark all read" button; keyboard-dismiss
       (Esc); click-outside-to-close.
-- [ ] `app/api/notifications/unread-count/route.ts` — auth-gated;
+- [x] `app/api/notifications/unread-count/route.ts` — auth-gated;
       returns `{count}`; viewer-scoped.
-- [ ] `app/api/notifications/route.ts` — GET, returns last 50
+- [x] `app/api/notifications/route.ts` — GET, returns last 50
       matching events.
-- [ ] `app/api/notifications/mark-read/route.ts` — POST, upserts
+- [x] `app/api/notifications/mark-read/route.ts` — POST, upserts
       `last_seen_audit_id = MAX(audit_log.id)`.
-- [ ] Unit test: two users, one marks-read, count for the other is
+- [x] Unit test: two users, one marks-read, count for the other is
       untouched.
-- [ ] Unit test: admin + member scoping — member sees only own.
-- [ ] Exit gate: badge drops to 0 within 1s of "mark all read".
+- [x] Unit test: admin + member scoping — member sees only own.
+- [x] Exit gate: badge drops to 0 within 1s of "mark all read".
 
 #### Phase 6: Mobile responsive (2 days)
 
-- [ ] Tailwind breakpoints used throughout: `md:` (768px),
+- [x] Tailwind breakpoints used throughout: `md:` (768px),
       `lg:` (1024px).
-- [ ] Sidebar hidden below `lg:`; burger icon in compact top bar
+- [x] Sidebar hidden below `lg:`; burger icon in compact top bar
       opens `MobileDrawer`.
-- [ ] Dashboard tile grid: `grid-cols-1 md:grid-cols-2`.
-- [ ] Board (current top-nav unchanged on `md+`); on mobile, keep
+- [x] Dashboard tile grid: `grid-cols-1 md:grid-cols-2`.
+- [x] Board (current top-nav unchanged on `md+`); on mobile, keep
       horizontal swimlane scroll + ensure touch momentum works.
-- [ ] Wizard steps fit a 375px screen (inputs full-width, buttons
+- [x] Wizard steps fit a 375px screen (inputs full-width, buttons
       stack).
-- [ ] Profile sections stack vertically on mobile.
-- [ ] All interactive targets ≥44px on touch.
-- [ ] Manual matrix test: 375 / 768 / 1024 / 1440 widths on every
+- [x] Profile sections stack vertically on mobile.
+- [x] All interactive targets ≥44px on touch.
+- [x] Manual matrix test: 375 / 768 / 1024 / 1440 widths on every
       route.
-- [ ] Exit gate: on a 375px viewport every page is reachable and
+- [x] Exit gate: on a 375px viewport every page is reachable and
       every action is tappable.
 
 #### Phase 7: Polish + docs (1 day)
 
-- [ ] README "Pages" section mentioning Dashboard + Profile.
-- [ ] `docs/install-checklist.md` step: "sign in, open /dashboard,
+- [x] README "Pages" section mentioning Dashboard + Profile.
+- [x] `docs/install-checklist.md` step: "sign in, open /dashboard,
       confirm tiles render".
-- [ ] `components/brand/Brandmark.tsx` — a subtle scale so it fits
+- [x] `components/brand/Brandmark.tsx` — a subtle scale so it fits
       the 240px sidebar header cleanly.
-- [ ] Keyboard-nav pass: `Tab` through sidebar, space/enter activates,
+- [x] Keyboard-nav pass: `Tab` through sidebar, space/enter activates,
       Esc closes drawer and notifications panel.
-- [ ] a11y landmarks: `<nav aria-label="Primary">`, `<main>`, role=dialog
+- [x] a11y landmarks: `<nav aria-label="Primary">`, `<main>`, role=dialog
       on panel.
-- [ ] Smoke-install script: add an assertion that `/api/health`
+- [x] Smoke-install script: add an assertion that `/api/health`
       still responds + `/dashboard` 302s to sign-in for anon.
-- [ ] Exit gate: `npm run smoke:install` green; `npm run typecheck`
+- [x] Exit gate: `npm run smoke:install` green; `npm run typecheck`
       clean; 50+ tests still passing.
 
 **Total: ~11 days.** Descopable to ~7 by cutting:
@@ -539,38 +539,38 @@ a member cannot POST to `/api/profile/save` on behalf of another user.
 
 ### Functional Requirements
 
-- [ ] Every non-board route renders the 240px sidebar; board routes
+- [x] Every non-board route renders the 240px sidebar; board routes
       render the existing top-nav.
-- [ ] Sidebar admin section visible only when `role === "admin"`.
-- [ ] `/dashboard` exists, renders 4 tiles, refreshes every 15s.
-- [ ] `/profile` exists, edits persist, changes take effect on next
+- [x] Sidebar admin section visible only when `role === "admin"`.
+- [x] `/dashboard` exists, renders 4 tiles, refreshes every 15s.
+- [x] `/profile` exists, edits persist, changes take effect on next
       run without restart.
-- [ ] Notifications bell shows correct unread count; "mark all read"
+- [x] Notifications bell shows correct unread count; "mark all read"
       zeros it; count is per-user.
-- [ ] Every existing route (/, /team, /cards/:id, /admin/ops,
+- [x] Every existing route (/, /team, /cards/:id, /admin/ops,
       /admin/settings, /setup*, /sign-in) still works unchanged
       aside from chrome.
-- [ ] On a 375px viewport every page is reachable and tappable.
+- [x] On a 375px viewport every page is reachable and tappable.
 
 ### Non-Functional Requirements
 
-- [ ] `/dashboard` server render in <300ms with 50 runs seeded.
-- [ ] No N+1 queries (activity tile joins users in-query, doesn't
+- [x] `/dashboard` server render in <300ms with 50 runs seeded.
+- [x] No N+1 queries (activity tile joins users in-query, doesn't
       per-row lookup).
-- [ ] Admin-gated API handlers validate session role independently
+- [x] Admin-gated API handlers validate session role independently
       of the sidebar (defense in depth).
-- [ ] `aria-current="page"` on active sidebar item; `<nav>` landmark
+- [x] `aria-current="page"` on active sidebar item; `<nav>` landmark
       present; notifications panel is role=dialog with focus trap.
-- [ ] No layout shift on cold load (sidebar has a reserved 240px
+- [x] No layout shift on cold load (sidebar has a reserved 240px
       grid column even before hydration).
 
 ### Quality Gates
 
-- [ ] `npm run typecheck` clean.
-- [ ] `npm test` passes (existing 45 + ~6 new tests = ~51).
-- [ ] `npm run smoke:install` passes.
-- [ ] Manual pass on 375 / 768 / 1440 widths.
-- [ ] No console errors/warnings on the four new pages.
+- [x] `npm run typecheck` clean.
+- [x] `npm test` passes (existing 45 + ~6 new tests = ~51).
+- [x] `npm run smoke:install` passes.
+- [x] Manual pass on 375 / 768 / 1440 widths.
+- [x] No console errors/warnings on the four new pages.
 
 ## Success Metrics
 
@@ -631,12 +631,12 @@ Out of scope here, earmarked for v2:
 
 ## Documentation Plan
 
-- [ ] `README.md` — Pages section: Dashboard, Profile.
-- [ ] `docs/install-checklist.md` — post-install step to verify
+- [x] `README.md` — Pages section: Dashboard, Profile.
+- [x] `docs/install-checklist.md` — post-install step to verify
       dashboard renders.
-- [ ] Screenshots: sidebar collapsed/drawer/dashboard (upload to PR
+- [x] Screenshots: sidebar collapsed/drawer/dashboard (upload to PR
       description).
-- [ ] `docs/conventions/` (if it exists) — note the `(board)` vs
+- [x] `docs/conventions/` (if it exists) — note the `(board)` vs
       `(sidebar)` route-group pattern so future pages pick the right
       group.
 

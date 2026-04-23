@@ -6,10 +6,23 @@ import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/server/db/client";
 import { artifacts, runs, tasks, worktrees } from "@/server/db/schema";
 import { audit } from "@/server/auth/audit";
+import { AGENTS } from "@/server/agents/registry";
 
-// Per-lane expected artifact path + kind. When an agent run completes, we
-// look for this file in the worktree and promote it to a DB row.
-type ArtifactKind = "brainstorm" | "plan" | "review" | "implementation";
+// Every possible `artifacts.kind` value. Core 4 are gated by Approve & PR;
+// the specialist kinds (research, *-review, deploy-check) are visible in
+// the ArtifactPanel but never block the PR flow or create staleness.
+type ArtifactKind =
+  | "brainstorm"
+  | "plan"
+  | "review"
+  | "implementation"
+  | "research"
+  | "security-review"
+  | "perf-review"
+  | "deploy-check";
+
+// Per-lane default artifact path + kind. Used when the agent config doesn't
+// declare its own `produces` (i.e., the core ce:* agents).
 const LANE_TO_KIND: Record<string, { kind: ArtifactKind; dir: string }> = {
   brainstorm: { kind: "brainstorm", dir: "docs/brainstorms" },
   plan: { kind: "plan", dir: "docs/plans" },
@@ -17,12 +30,17 @@ const LANE_TO_KIND: Record<string, { kind: ArtifactKind; dir: string }> = {
   implement: { kind: "implementation", dir: "docs/implementation" },
 };
 
-// Downstream order: re-running X makes these stale.
+// Downstream order: re-running X makes these stale. Only the 4 core kinds
+// participate in staleness; specialist artifacts are side-notes.
 const DOWNSTREAM: Record<string, ArtifactKind[]> = {
   brainstorm: ["plan", "review"],
   plan: ["review"],
   review: [],
   implementation: [],
+  research: [],
+  "security-review": [],
+  "perf-review": [],
+  "deploy-check": [],
 };
 
 /**
@@ -38,7 +56,14 @@ export async function persistArtifactsForRun(runId: string): Promise<void> {
   const run = db.select().from(runs).where(eq(runs.id, runId)).get();
   if (!run) return;
 
-  const laneMap = LANE_TO_KIND[run.lane];
+  // Prefer the agent's declared output; fall back to the lane default.
+  // Specialist agents (security:review, ce:research, …) set `produces`;
+  // the core ce:* agents rely on the lane-based default.
+  const agent = (AGENTS as Record<string, { produces?: { kind: string; dir: string } }>)[run.agentId];
+  const laneMap =
+    (agent?.produces
+      ? { kind: agent.produces.kind as ArtifactKind, dir: agent.produces.dir }
+      : undefined) ?? LANE_TO_KIND[run.lane];
   if (!laneMap) return; // 'pr' lane or unknown — no artifact expected
 
   const wt = db.select().from(worktrees).where(eq(worktrees.taskId, run.taskId)).limit(1).get();

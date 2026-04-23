@@ -12,10 +12,10 @@ export default function SetupLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-screen flex-col bg-[color:var(--background)]">
-      <header className="flex items-center justify-between border-b border-[color:var(--border)] bg-[color:var(--background)]/80 px-6 py-3 backdrop-blur">
+    <div className="flex min-h-screen flex-col">
+      <header className="flex items-center justify-between border-b border-[color:var(--border)] bg-[color:var(--background)]/80 px-4 py-3 backdrop-blur md:px-6">
         <div className="flex items-center gap-3">
-          <Brandmark size={24} />
+          <Brandmark size={22} variant="mark" />
           <span className="rounded-full border border-[color:var(--accent)]/40 bg-[color:var(--accent)]/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--accent)]">
             first-run setup
           </span>
@@ -23,7 +23,7 @@ export default function SetupLayout({
         <ThemeToggle />
       </header>
 
-      <main className="flex flex-1 justify-center p-6">
+      <main className="flex flex-1 justify-center p-4 md:p-6">
         <div className="w-full max-w-3xl">{children}</div>
       </main>
 

@@ -33,6 +33,15 @@ knob (Google OAuth, Jira, paths, agents, preview, CI) into the
 
 > ⚠ If you see `NODE_MODULE_VERSION 115 ... requires NODE_MODULE_VERSION 108`, you're running the wrong Node version. Run `nvm use` (or `nvm use 20`) before `npm run dev`. The native better-sqlite3 binding is compiled against the Node version that ran `npm install`.
 
+## Pages
+
+- **`/`** — My Tasks swimlane board (ticket → branch → … → done)
+- **`/team`** — Team board (everyone's tasks)
+- **`/dashboard`** — Ops health, cost meter, throughput, activity feed
+- **`/profile`** — Your identity, per-user agent defaults, notifications
+- **`/admin/settings`** — Instance-wide config (admin-only)
+- **`/admin/ops`** — Ops console (admin-only)
+
 ## Setup
 
 See **[`docs/install-checklist.md`](docs/install-checklist.md)** for the

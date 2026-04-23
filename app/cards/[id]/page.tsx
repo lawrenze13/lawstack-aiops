@@ -156,7 +156,15 @@ export default async function CardDetailPage({ params }: Props) {
     .where(eq(artifacts.taskId, id))
     .orderBy(desc(artifacts.createdAt))
     .all();
-  type ArtifactKind = "brainstorm" | "plan" | "review" | "implementation";
+  type ArtifactKind =
+    | "brainstorm"
+    | "plan"
+    | "review"
+    | "implementation"
+    | "research"
+    | "security-review"
+    | "perf-review"
+    | "deploy-check";
   const latestArtifactByKind = new Map<ArtifactKind, (typeof allArtifacts)[number]>();
   for (const a of allArtifacts) {
     const k = a.kind as ArtifactKind;

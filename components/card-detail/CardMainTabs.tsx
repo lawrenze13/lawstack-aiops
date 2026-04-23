@@ -9,7 +9,15 @@ import { ChangesViewer } from "./ChangesViewer";
 import { DevShell } from "./DevShell";
 
 export type CardArtifact = {
-  kind: "brainstorm" | "plan" | "review" | "implementation";
+  kind:
+    | "brainstorm"
+    | "plan"
+    | "review"
+    | "implementation"
+    | "research"
+    | "security-review"
+    | "perf-review"
+    | "deploy-check";
   filename: string;
   markdown: string;
   isStale: boolean;
@@ -22,6 +30,10 @@ const ARTIFACT_KINDS: CardArtifact["kind"][] = [
   "plan",
   "review",
   "implementation",
+  "research",
+  "security-review",
+  "perf-review",
+  "deploy-check",
 ];
 function isArtifactKind(v: string | null): v is CardArtifact["kind"] {
   return !!v && (ARTIFACT_KINDS as string[]).includes(v);
@@ -46,15 +58,23 @@ type Props = {
 };
 
 const KIND_ORDER: CardArtifact["kind"][] = [
+  "research",
   "brainstorm",
   "plan",
   "review",
+  "security-review",
+  "perf-review",
+  "deploy-check",
   "implementation",
 ];
 const KIND_LABEL: Record<CardArtifact["kind"], string> = {
+  research: "Research",
   brainstorm: "Brainstorm",
   plan: "Plan",
   review: "Review",
+  "security-review": "Security",
+  "perf-review": "Performance",
+  "deploy-check": "Deploy check",
   implementation: "Implementation",
 };
 

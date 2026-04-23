@@ -4,7 +4,15 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Chip } from "@heroui/react/chip";
 
 type Artifact = {
-  kind: "brainstorm" | "plan" | "review" | "implementation";
+  kind:
+    | "brainstorm"
+    | "plan"
+    | "review"
+    | "implementation"
+    | "research"
+    | "security-review"
+    | "perf-review"
+    | "deploy-check";
   filename: string;
   markdown: string;
   isStale: boolean;
@@ -20,6 +28,10 @@ const KIND_LABEL: Record<Artifact["kind"], string> = {
   plan: "Plan",
   review: "Review",
   implementation: "Implementation",
+  research: "Research",
+  "security-review": "Security review",
+  "perf-review": "Performance review",
+  "deploy-check": "Deploy check",
 };
 
 /**

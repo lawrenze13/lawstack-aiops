@@ -30,7 +30,7 @@ export default async function SignInPage({ searchParams }: Props) {
   const isFirstAdmin = anyUser.length === 0;
 
   return (
-    <div className="flex min-h-screen flex-col bg-[color:var(--background)]">
+    <div className="flex min-h-screen flex-col">
       <header className="flex items-center justify-between border-b border-[color:var(--border)] px-6 py-3">
         <Brandmark size={24} />
         <ThemeToggle />

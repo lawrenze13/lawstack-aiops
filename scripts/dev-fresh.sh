@@ -82,6 +82,16 @@ cat <<EOF
 
 EOF
 
+# ── Clear Next.js build cache
+# Route-group / layout restructures (like moving pages between (board)
+# and (sidebar) groups, adding loading.tsx, etc.) invalidate Next's
+# webpack chunk map. A stale cache shows "page not found" for routes
+# that were just moved. Wiping .next costs one extra compile on boot.
+if [[ -d .next ]]; then
+  say "Clearing .next cache (avoids stale route-group chunk errors)"
+  rm -rf .next
+fi
+
 # ── Boot
 # Scrub inherited wizard-owned env vars so a fresh DB really IS fresh —
 # your repo's .env has production Google/Jira creds, which would make

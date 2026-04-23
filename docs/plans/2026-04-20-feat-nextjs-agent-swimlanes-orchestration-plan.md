@@ -571,11 +571,11 @@ On boot, registry rows are upserted into the `agent_config` cache table with a `
 - [x] Caddy site config *(documented in docs/deploy.md with `flush_interval -1` + `read_timeout 0` for /api/runs/*/stream)*
 - [x] systemd unit *(documented in docs/deploy.md with `KillMode=mixed`, `ExecStartPre=npm run db:migrate`, `Restart=on-failure`)*
 
-**Phase 4B — Still to do (process + dark-launch gate):**
-- [ ] `DARK_LAUNCH=true` env guard that short-circuits outbound calls (postComment, transitionIssueToName, gh pr create) for dual-run period
-- [ ] **Dark-launch (days 1–7):** dual-write against real Jira webhook traffic, no outbound from aiops
-- [ ] **Cut-over day:** disable n8n outbound; enable aiops outbound; monitor 48h
-- [ ] **Decommission day +14:** archive `ticket-worker.sh` + `ticket-resume.sh` + `claude-stream-to-slack.sh` to `/home/lawrenzem/bin/_archive/`; delete n8n workflows
+**Phase 4B — Cutover completed (2026-04):**
+- [x] ~~`DARK_LAUNCH=true` env guard~~ — **N/A**: operator did a hard cutover; n8n is already off, no dual-run needed.
+- [x] ~~Dark-launch days 1–7~~ — **N/A**: same reason.
+- [x] ~~Cut-over day~~ — **done implicitly** when n8n was decommissioned.
+- [ ] **Decommission scripts** — `ticket-worker.sh` + `ticket-resume.sh` + `claude-stream-to-slack.sh` still live in `/home/lawrenzem/bin/` but are never invoked. Archive to `/home/lawrenzem/bin/_archive/` when convenient.
 - **Success criteria:** Slack bot retired ≤14 days post-launch; AC-6, AC-7, AC-10, AC-12 pass; success metrics met for 1 week.
 
 #### Phase 5: Implementation (post-PR, `ce:work` agent) — landed

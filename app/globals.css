@@ -38,9 +38,60 @@
   --border: oklch(0.27 0 0);
 }
 
+/*
+ * Scale the entire root by 120%. Tailwind spacing utilities (p-4 = 1rem,
+ * gap-3 = 0.75rem, text-sm = 0.875rem, etc.) are all rem-anchored to
+ * <html>, so setting html { font-size: 120% } is equivalent to the
+ * user zooming to 120% in their browser — every size, padding, and gap
+ * scales proportionally without touching any component class.
+ *
+ * Pixel-valued things (the grid texture's 32px repeat, SVG viewBoxes,
+ * raster images) stay at physical size, which is the same behaviour
+ * browser zoom has on page backgrounds.
+ */
+html {
+  font-size: 120%;
+}
+
+body {
+  /* Zero the default UA margin. */
+  margin: 0;
+}
+
+/*
+ * On desktop (≥lg), the AppShell locks its outer div to h-screen and
+ * puts overflow-y-auto on <main>. The body should NEVER scroll there
+ * — it's the main's job. Pinning html + body to 100% height +
+ * overflow:hidden guarantees no stray pixels (browser scrollbar
+ * gutter, rounding, etc.) create a phantom page scrollbar next to
+ * main's own scrollbar.
+ *
+ * On mobile (<lg) the AppShell lifts the height constraint and we
+ * rely on natural body scroll, so this rule is gated by media query.
+ */
+@media (min-width: 1024px) {
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+  }
+}
+
+/*
+ * Background lives on `html` ONLY. If body also has `background`,
+ * body's opaque fill paints OVER `body::before` (z-index:-1 puts the
+ * pseudo between html and body, and an opaque body then hides it).
+ * Making body transparent lets the grid texture show through.
+ */
+html {
+  background: var(--background);
+}
+body {
+  background: transparent;
+}
+
 html,
 body {
-  background: var(--background);
   color: var(--foreground);
   font-family:
     var(--font-body),
@@ -52,8 +103,21 @@ body {
     "Helvetica Neue",
     Arial,
     sans-serif;
-  font-size: 13px; /* "signal room" tight base — 11/12/13/15 scale */
-  line-height: 1.35;
+  line-height: 1.4;
+}
+
+/*
+ * Browser default cursor for <button> is `default` (arrow). Tailwind v4's
+ * preflight would set it to `pointer`, but HeroUI's base styles replace
+ * preflight so that rule is missing. Restore it here — once, for every
+ * button in the app. Disabled buttons get not-allowed for consistency
+ * with HTML form controls.
+ */
+button:not(:disabled) {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
 }
 
 /* ─── Signal-room grid texture ────────────────────────────────────────────────
@@ -61,23 +125,23 @@ body {
    sign-in screens use — lifts the background enough to read as an
    operator console, disappears against real content. Rendered as a
    fixed pseudo-element so scrolling doesn't reflow it and it costs
-   zero DOM nodes. */
+   zero DOM nodes.
+
+   z-index: -1 places it behind body's content in body's stacking
+   context. Critically: we do NOT force `body > *` to position:
+   relative — that previously overrode `position: fixed` on portalled
+   elements (like the mobile drawer overlay) and broke them. */
 body::before {
   content: "";
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 0;
+  z-index: -1;
   opacity: 0.035;
   background-image:
     linear-gradient(var(--foreground) 1px, transparent 1px),
     linear-gradient(90deg, var(--foreground) 1px, transparent 1px);
   background-size: 32px 32px;
-}
-/* Keep real content above the texture. */
-body > * {
-  position: relative;
-  z-index: 1;
 }
 
 h1, h2, h3, h4, h5, h6, button, [role="heading"] {
