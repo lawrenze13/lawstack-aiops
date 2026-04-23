@@ -1,0 +1,29 @@
+__DOMAIN__ {
+	encode zstd gzip
+
+	# SSE + long-running POSTs: agent runs stream output for the life of the
+	# subprocess (minutes → hours). Default Caddy timeouts would kill them.
+	reverse_proxy localhost:__PORT__ {
+		transport http {
+			read_timeout    1h
+			write_timeout   1h
+			dial_timeout    10s
+			keepalive       30s
+		}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-For   {remote_host}
+		header_up Host              {host}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options    "nosniff"
+		Referrer-Policy           "strict-origin-when-cross-origin"
+		X-Frame-Options           "DENY"
+	}
+
+	log {
+		output file /var/log/caddy/__DOMAIN__-access.log
+		level error
+	}
+}

@@ -1,0 +1,39 @@
+[Unit]
+Description=__APP_NAME__ (Next.js production)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+Group=__USER__
+WorkingDirectory=__INSTALL_DIR__
+
+EnvironmentFile=__INSTALL_DIR__/.env
+Environment=NODE_ENV=production
+Environment=PORT=__PORT__
+Environment=PATH=__NODE_BIN_DIR__:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Run migrations before each start — idempotent, no-op if schema is current.
+ExecStartPre=__NODE_BIN_DIR__/npm run db:migrate
+
+ExecStart=__NODE_BIN_DIR__/npm start
+
+# Restart on crashes; give up after 5 failed starts in 60s so a broken build
+# doesn't thrash forever.
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# Graceful shutdown so in-flight SSE streams and agent runs can finalise.
+KillMode=mixed
+KillSignal=SIGINT
+TimeoutStopSec=30
+
+# stdout + stderr → journald. Tail with `journalctl -u __APP_NAME__ -f`.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
