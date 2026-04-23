@@ -223,16 +223,11 @@ if ! [[ -x "$NODE_BIN_DIR/claude" ]]; then
 	warn "agent runs will fail until you: npm install -g @anthropic-ai/claude-code"
 fi
 
-# ─── Directories ─────────────────────────────────────────────────────────────
-run "mkdir -p '$WORKTREE_ROOT'"
-if [[ "$MODE" != "local" ]]; then
-	run "chown -R '$USER_NAME:$USER_NAME' '$WORKTREE_ROOT'"
-fi
-if [[ "$MODE" == "full" ]]; then
-	run "mkdir -p /var/log/caddy"
-fi
-
 # ─── Clone or update the app ─────────────────────────────────────────────────
+# Must come BEFORE creating WORKTREE_ROOT, because in local mode
+# WORKTREE_ROOT is a subdirectory of INSTALL_DIR. Creating it first would
+# make INSTALL_DIR exist before the clone, tripping the non-git-checkout
+# safety check.
 GIT_PREFIX=""
 if [[ "$MODE" != "local" ]]; then
 	GIT_PREFIX="sudo -u $USER_NAME "
@@ -243,7 +238,23 @@ if [[ -d "$INSTALL_DIR/.git" ]]; then
 	run "${GIT_PREFIX}git -C '$INSTALL_DIR' checkout '$BRANCH'"
 	run "${GIT_PREFIX}git -C '$INSTALL_DIR' pull --ff-only"
 elif [[ -e "$INSTALL_DIR" ]]; then
-	fail "$INSTALL_DIR exists and isn't a git checkout — rename it or use --install-dir elsewhere"
+	# Allow proceeding if the only contents are known installer-side-effect
+	# dirs (e.g., an empty `worktrees/` left by a previously-failed run).
+	NON_WORKTREE=$(find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 ! -name worktrees 2>/dev/null | head -1)
+	if [[ -z "$NON_WORKTREE" ]]; then
+		log "$INSTALL_DIR exists but is empty (stale from a failed prior run) — cleaning and cloning"
+		# Preserve worktrees dir if present (user data); move it aside.
+		if [[ -d "$INSTALL_DIR/worktrees" ]]; then
+			run "mv '$INSTALL_DIR/worktrees' '${INSTALL_DIR}.worktrees.tmp'"
+		fi
+		run "rmdir '$INSTALL_DIR'"
+		run "${GIT_PREFIX}git clone --branch '$BRANCH' '$REPO' '$INSTALL_DIR'"
+		if [[ -d "${INSTALL_DIR}.worktrees.tmp" ]]; then
+			run "mv '${INSTALL_DIR}.worktrees.tmp' '$INSTALL_DIR/worktrees'"
+		fi
+	else
+		fail "$INSTALL_DIR exists and isn't a git checkout — rename it or use --install-dir elsewhere"
+	fi
 else
 	log "cloning $REPO (branch $BRANCH) → $INSTALL_DIR"
 	if [[ "$MODE" != "local" ]]; then
@@ -252,6 +263,15 @@ else
 		run "mkdir -p '$(dirname "$INSTALL_DIR")'"
 	fi
 	run "${GIT_PREFIX}git clone --branch '$BRANCH' '$REPO' '$INSTALL_DIR'"
+fi
+
+# ─── Directories (post-clone so WORKTREE_ROOT inside INSTALL_DIR works) ──────
+run "mkdir -p '$WORKTREE_ROOT'"
+if [[ "$MODE" != "local" ]]; then
+	run "chown -R '$USER_NAME:$USER_NAME' '$WORKTREE_ROOT'"
+fi
+if [[ "$MODE" == "full" ]]; then
+	run "mkdir -p /var/log/caddy"
 fi
 
 # ─── .env (only if missing) ──────────────────────────────────────────────────
