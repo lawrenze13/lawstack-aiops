@@ -85,6 +85,11 @@ case "$MODE" in
 		APP_SLUG="aiops-local"
 		# AUTH_URL defaults to localhost for the mode's setup URL shape.
 		DOMAIN="${DOMAIN:-localhost:$PORT}"
+		# Worktree root must be user-writable in local mode — can't touch
+		# /var/aiops/worktrees without sudo. Nest it under INSTALL_DIR.
+		if [[ "$WORKTREE_ROOT" == "/var/aiops/worktrees" ]]; then
+			WORKTREE_ROOT="$INSTALL_DIR/worktrees"
+		fi
 		;;
 	*)
 		echo "unknown --mode '$MODE' (expected: full|proxy|local)" >&2
