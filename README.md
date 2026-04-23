@@ -5,47 +5,124 @@ Compound Engineering pipeline (brainstorm → plan → review → implement)
 against Jira tickets, one agent per lane, artifacts stored in DB,
 served behind Caddy.
 
-## Install on a fresh Ubuntu / Debian VPS
+## Install
 
-One command — installs Caddy, Node 20, the Claude CLI, and this app as
-a systemd service behind Caddy TLS:
+The installer supports three modes depending on how production-ready
+you want the deploy to be. All three use the same `scripts/install.sh`
+with a `--mode` flag.
+
+### Mode comparison
+
+| Mode | What it sets up | Needs sudo? | TLS? | Best for |
+|---|---|---|---|---|
+| **`local`** | App only — background process on `localhost:PORT`, no systemd, no Caddy, no TLS | No (if PORT > 1024) | None | Try it on your laptop, home server, LAN |
+| **`proxy`** | App + systemd service | Yes | You handle it | You already run nginx, Cloudflare Tunnel, Traefik, etc. |
+| **`full`** | App + systemd + Caddy + Let's Encrypt | Yes | Automatic | Fresh public VPS |
+
+### Local mode — no domain, no Caddy, no sudo
+
+Good for trying it on a laptop or single-user home server. Runs on
+`http://localhost:3300` with a pidfile; zero external surface.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lawrenze13/lawstack-aiops/main/scripts/install.sh \
+  | bash -s -- --mode local
+```
+
+What happens:
+- Clones repo to `~/.local/share/lawstack-aiops`
+- Installs Node 20 via nvm (user-scoped)
+- Installs `@anthropic-ai/claude-code` globally for this user
+- Builds + runs `npm start` via `nohup` with pidfile at
+  `~/.local/share/lawstack-aiops/aiops.pid`
+- Opens `http://localhost:3300` in a browser to start the setup wizard
+
+```bash
+# Day-to-day (local mode):
+tail -f ~/.local/share/lawstack-aiops/aiops.log     # live logs
+kill $(cat ~/.local/share/lawstack-aiops/aiops.pid) # stop
+# Restart: re-run the install command — it's idempotent
+```
+
+### Proxy mode — systemd service, bring your own reverse proxy
+
+You run nginx / Cloudflare Tunnel / Traefik / whatever. Installer sets
+up a systemd service on `localhost:PORT`; you wire it up externally.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lawrenze13/lawstack-aiops/main/scripts/install.sh \
   | sudo bash -s -- \
-    --domain aiops.yourdomain.tld \
-    --user $(whoami)
+    --mode proxy \
+    --user deploy \
+    --domain aiops.yourdomain.tld
 ```
 
-**What you need first:**
+`--domain` is used only for `AUTH_URL` (the cookie domain auth.js
+signs against). The install doesn't touch Caddy or DNS. After install,
+point your existing reverse proxy at `http://localhost:3300`.
 
-- A DNS `A` record for `aiops.yourdomain.tld` → your VPS's public IP
-  (`dig aiops.yourdomain.tld +short` should match `curl https://api.ipify.org`)
-- Ports 80 + 443 open inbound (Let's Encrypt needs 80 for HTTP-01)
-- A unix user with `sudo` (create one: `sudo useradd -m -s /bin/bash deploy`)
-- A Google OAuth Web Application Client with redirect URI set to
+### Full mode — systemd + Caddy + auto-TLS
+
+One command, fresh public VPS → working HTTPS deploy:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lawrenze13/lawstack-aiops/main/scripts/install.sh \
+  | sudo bash -s -- \
+    --mode full \
+    --domain aiops.yourdomain.tld \
+    --user deploy
+```
+
+The installer auto-installs Caddy 2.x (apt-based) if missing, appends
+a reverse-proxy block to `/etc/caddy/Caddyfile` idempotently, and
+Caddy provisions a Let's Encrypt cert on first request.
+
+**Prereqs for full mode:**
+
+- DNS `A` record for `aiops.yourdomain.tld` → your VPS public IP
+- Ports 80 + 443 open inbound (LE HTTP-01 challenge + HTTPS)
+- A sudo-capable unix user that isn't root (create one:
+  `sudo useradd -m -s /bin/bash deploy && sudo usermod -aG sudo deploy`)
+- Google OAuth Web Application Client with redirect URI
   `https://aiops.yourdomain.tld/api/auth/callback/google`
-  (the installer prints this reminder at the end)
 
-**After install completes:**
+### After any mode completes
 
-1. Tail the journal to grab the one-time setup URL:
-   `sudo journalctl -u aiops-aiops -n 30 | grep -A2 "SETUP REQUIRED"`
-2. Open that URL in a browser — walk the 6 wizard steps (Google OAuth
-   credentials, Jira, paths, agents)
-3. Sign in with Google; the first signed-in user auto-promotes to admin
+1. Grab the one-time setup URL:
+   - **Full/proxy**: `sudo journalctl -u <slug>-aiops -n 30 | grep -A2 "SETUP REQUIRED"`
+   - **Local**: `grep -A2 "SETUP REQUIRED" ~/.local/share/lawstack-aiops/aiops.log`
+2. Open that URL in a browser; walk the 6-step setup wizard
+3. Sign in with Google; first signed-in user auto-promotes to admin
 
-See [`docs/install-checklist.md`](docs/install-checklist.md) for the
-full step-by-step and troubleshooting.
+See [`docs/install-checklist.md`](docs/install-checklist.md) for full
+step-by-step + troubleshooting.
+
+### All installer flags
+
+```
+--mode            local | proxy | full         (default: full)
+--domain DOMAIN   required for full mode; optional in proxy mode
+--user USER       required for full and proxy modes
+--port PORT       default 3300
+--install-dir DIR default depends on mode
+--branch BRANCH   default main
+--repo URL        default this repo's HTTPS url
+--worktree-root D default /var/aiops/worktrees
+--dry-run         print actions without executing
+```
 
 ### Uninstall
 
 ```bash
-sudo bash /var/www/aiops.yourdomain.tld/scripts/uninstall.sh \
-  --domain aiops.yourdomain.tld
+# full / proxy mode:
+sudo bash <install-dir>/scripts/uninstall.sh --domain aiops.yourdomain.tld
+
+# local mode:
+kill $(cat ~/.local/share/lawstack-aiops/aiops.pid) 2>/dev/null
+rm -rf ~/.local/share/lawstack-aiops
 ```
 
-Add `--purge-data --purge-env` for scorched-earth removal.
+Add `--purge-data --purge-env` to scorched-earth the DB + worktrees + secrets.
 
 ## Stack
 

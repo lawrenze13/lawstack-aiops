@@ -35,9 +35,20 @@ BRANCH=main
 REPO="https://github.com/lawrenze13/lawstack-aiops.git"
 WORKTREE_ROOT=/var/aiops/worktrees
 DRY_RUN=0
+# ── Install modes ────────────────────────────────────────────────────────────
+# full  — systemd + Caddy + Let's Encrypt TLS. Requires --domain + --user.
+#         For fresh VPS deploys with a public domain.
+# proxy — systemd service only. No Caddy. User supplies their own reverse
+#         proxy (nginx, Cloudflare Tunnel, etc.). Requires --user, optional
+#         --domain for AUTH_URL.
+# local — No systemd, no Caddy. Background process via pidfile on
+#         localhost:PORT. Works without sudo if PORT > 1024. Great for
+#         laptops, home servers, trying it out. No --user / --domain needed.
+MODE=full
 
 while [[ $# -gt 0 ]]; do
 	case $1 in
+		--mode)           MODE=$2; shift 2 ;;
 		--domain)         DOMAIN=$2; shift 2 ;;
 		--install-dir)    INSTALL_DIR=$2; shift 2 ;;
 		--user)           USER_NAME=$2; shift 2 ;;
@@ -54,13 +65,32 @@ while [[ $# -gt 0 ]]; do
 	esac
 done
 
-# Required
-[[ -n "$DOMAIN" ]]    || { echo "--domain required" >&2; exit 1; }
-[[ -n "$USER_NAME" ]] || { echo "--user required" >&2; exit 1; }
-# Default install-dir if unset
-INSTALL_DIR="${INSTALL_DIR:-/var/www/$DOMAIN}"
-# App-slug for the systemd unit name (one-word, domain-derived)
-APP_SLUG="$(echo "$DOMAIN" | cut -d. -f1)-aiops"
+# ─── Validate mode + required flags ──────────────────────────────────────────
+case "$MODE" in
+	full)
+		[[ -n "$DOMAIN" ]]    || { echo "--domain required for --mode full" >&2; exit 1; }
+		[[ -n "$USER_NAME" ]] || { echo "--user required for --mode full" >&2; exit 1; }
+		INSTALL_DIR="${INSTALL_DIR:-/var/www/$DOMAIN}"
+		APP_SLUG="$(echo "$DOMAIN" | cut -d. -f1)-aiops"
+		;;
+	proxy)
+		[[ -n "$USER_NAME" ]] || { echo "--user required for --mode proxy" >&2; exit 1; }
+		INSTALL_DIR="${INSTALL_DIR:-/var/www/${DOMAIN:-aiops}}"
+		APP_SLUG="${DOMAIN:+$(echo "$DOMAIN" | cut -d. -f1)-}aiops"
+		APP_SLUG="${APP_SLUG%-}"
+		;;
+	local)
+		# No sudo required if PORT > 1024. Install under the invoking user's home.
+		INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/share/lawstack-aiops}"
+		APP_SLUG="aiops-local"
+		# AUTH_URL defaults to localhost for the mode's setup URL shape.
+		DOMAIN="${DOMAIN:-localhost:$PORT}"
+		;;
+	*)
+		echo "unknown --mode '$MODE' (expected: full|proxy|local)" >&2
+		exit 1
+		;;
+esac
 
 # ─── Output helpers ──────────────────────────────────────────────────────────
 log()  { printf '\033[1;36m[install]\033[0m %s\n' "$*"; }
@@ -72,34 +102,44 @@ log "Installing $APP_SLUG → $DOMAIN at $INSTALL_DIR"
 (( DRY_RUN )) && log "DRY-RUN mode: no mutations will occur"
 
 # ─── Preflight ───────────────────────────────────────────────────────────────
-[[ $EUID -eq 0 ]]                        || fail "must run as root (use sudo)"
-command -v systemctl >/dev/null          || fail "systemd is required"
-command -v git >/dev/null                || fail "git not installed (apt-get install -y git)"
-command -v openssl >/dev/null            || fail "openssl not installed (apt-get install -y openssl)"
-command -v curl >/dev/null               || fail "curl not installed (apt-get install -y curl)"
+command -v git >/dev/null                || fail "git not installed"
+command -v openssl >/dev/null            || fail "openssl not installed"
+command -v curl >/dev/null               || fail "curl not installed"
 command -v sqlite3 >/dev/null            || warn "sqlite3 CLI not installed — fine, but you won't be able to inspect the DB directly"
-id "$USER_NAME" >/dev/null 2>&1          || fail "user '$USER_NAME' does not exist (create it first: useradd -m -s /bin/bash $USER_NAME)"
-[[ -w /etc/systemd/system ]]             || fail "cannot write to /etc/systemd/system"
 
-# Auto-install Caddy 2.x if missing (Debian / Ubuntu via the official apt repo).
-# On non-deb distros the installer fails here — install Caddy manually.
-if ! command -v caddy >/dev/null; then
-	if command -v apt-get >/dev/null; then
-		log "Caddy not found — installing via official apt repo"
-		run "apt-get update -qq"
-		run "apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https gnupg"
-		run "curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg"
-		run "curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list"
-		run "apt-get update -qq && apt-get install -y -qq caddy"
-	else
-		fail "Caddy 2.x not installed AND apt-get not available. See https://caddyserver.com/docs/install"
+# Mode-specific preflight
+case "$MODE" in
+	full|proxy)
+		[[ $EUID -eq 0 ]]                        || fail "modes 'full' and 'proxy' require root (use sudo)"
+		command -v systemctl >/dev/null          || fail "systemd is required for $MODE mode"
+		id "$USER_NAME" >/dev/null 2>&1          || fail "user '$USER_NAME' does not exist (create it first: useradd -m -s /bin/bash $USER_NAME)"
+		[[ -w /etc/systemd/system ]]             || fail "cannot write to /etc/systemd/system"
+		;;
+	local)
+		[[ $EUID -eq 0 ]]                        && warn "local mode doesn't need sudo — you're running as root, which is fine but unusual"
+		;;
+esac
+
+# Caddy is only required for full mode
+if [[ "$MODE" == "full" ]]; then
+	if ! command -v caddy >/dev/null; then
+		if command -v apt-get >/dev/null; then
+			log "Caddy not found — installing via official apt repo"
+			run "apt-get update -qq"
+			run "apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https gnupg"
+			run "curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg"
+			run "curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list"
+			run "apt-get update -qq && apt-get install -y -qq caddy"
+		else
+			fail "Caddy 2.x not installed AND apt-get not available. See https://caddyserver.com/docs/install"
+		fi
 	fi
+	command -v caddy >/dev/null              || fail "Caddy install failed — check apt output above"
+	[[ -w /etc/caddy ]] || [[ ! -e /etc/caddy/Caddyfile ]] || fail "cannot write to /etc/caddy"
 fi
-command -v caddy >/dev/null || fail "Caddy install failed — check apt output above"
 
-[[ -w /etc/caddy ]] || [[ ! -e /etc/caddy/Caddyfile ]] || fail "cannot write to /etc/caddy"
-
-# DNS sanity check (warn only — cert will just fail to provision until fixed)
+# DNS sanity check — only meaningful for full mode with auto-TLS
+if [[ "$MODE" == "full" ]]; then
 EXPECTED_IP=$(curl -s https://api.ipify.org || true)
 ACTUAL_IP=$(getent hosts "$DOMAIN" | awk '{print $1}' | head -1)
 if [[ -n "$EXPECTED_IP" && -n "$ACTUAL_IP" && "$EXPECTED_IP" != "$ACTUAL_IP" ]]; then
@@ -108,20 +148,44 @@ if [[ -n "$EXPECTED_IP" && -n "$ACTUAL_IP" && "$EXPECTED_IP" != "$ACTUAL_IP" ]];
 elif [[ -z "$ACTUAL_IP" ]]; then
 	warn "DNS: $DOMAIN does not resolve. Add an A record pointing at $EXPECTED_IP before TLS will work."
 fi
+fi  # end: DNS check only for full mode
 
-# Port conflict check
+# Port conflict check (always)
 if ss -ltnp 2>/dev/null | grep -q ":$PORT\b"; then
 	fail "port $PORT is already in use. Pick another with --port or stop the holder."
 fi
 
-# ─── Node 20 via nvm for the service user ────────────────────────────────────
-NVM_DIR_U="$(sudo -u "$USER_NAME" bash -lc 'echo ${NVM_DIR:-$HOME/.nvm}')"
-if ! sudo -u "$USER_NAME" bash -lc '[[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]]'; then
-	log "installing nvm for user $USER_NAME"
-	run "sudo -u '$USER_NAME' bash -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash'"
+# ─── Node 20 via nvm ─────────────────────────────────────────────────────────
+# For full/proxy modes, set up Node under the service user ($USER_NAME).
+# For local mode, set up Node under the invoking user ($USER).
+if [[ "$MODE" == "local" ]]; then
+	RUNAS_USER="$(whoami)"
+else
+	RUNAS_USER="$USER_NAME"
 fi
-log "ensuring Node 20 is installed for $USER_NAME"
-run "sudo -u '$USER_NAME' bash -lc 'source \$HOME/.nvm/nvm.sh && nvm install 20 && nvm alias default 20 >/dev/null'"
+
+as_user() {
+	if [[ "$RUNAS_USER" == "$(whoami)" ]]; then
+		bash -lc "$*"
+	else
+		sudo -u "$RUNAS_USER" bash -lc "$*"
+	fi
+}
+
+if ! as_user '[[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]]'; then
+	log "installing nvm for user $RUNAS_USER"
+	if [[ "$RUNAS_USER" == "$(whoami)" ]]; then
+		run "curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash"
+	else
+		run "sudo -u '$RUNAS_USER' bash -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash'"
+	fi
+fi
+log "ensuring Node 20 is installed for $RUNAS_USER"
+if [[ "$RUNAS_USER" == "$(whoami)" ]]; then
+	run "bash -lc 'source \$HOME/.nvm/nvm.sh && nvm install 20 && nvm alias default 20 >/dev/null'"
+else
+	run "sudo -u '$RUNAS_USER' bash -lc 'source \$HOME/.nvm/nvm.sh && nvm install 20 && nvm alias default 20 >/dev/null'"
+fi
 
 NODE_BIN_DIR=$(sudo -u "$USER_NAME" bash -lc 'source $HOME/.nvm/nvm.sh && nvm use 20 >/dev/null && dirname $(which npm)')
 [[ -x "$NODE_BIN_DIR/npm" ]] || fail "could not resolve npm path for $USER_NAME (got: $NODE_BIN_DIR/npm)"
@@ -148,34 +212,54 @@ fi
 
 # ─── Directories ─────────────────────────────────────────────────────────────
 run "mkdir -p '$WORKTREE_ROOT'"
-run "chown -R '$USER_NAME:$USER_NAME' '$WORKTREE_ROOT'"
-run "mkdir -p /var/log/caddy"  # Caddy log dir
+if [[ "$MODE" != "local" ]]; then
+	run "chown -R '$USER_NAME:$USER_NAME' '$WORKTREE_ROOT'"
+fi
+if [[ "$MODE" == "full" ]]; then
+	run "mkdir -p /var/log/caddy"
+fi
 
 # ─── Clone or update the app ─────────────────────────────────────────────────
+GIT_PREFIX=""
+if [[ "$MODE" != "local" ]]; then
+	GIT_PREFIX="sudo -u $USER_NAME "
+fi
 if [[ -d "$INSTALL_DIR/.git" ]]; then
 	log "updating existing checkout at $INSTALL_DIR"
-	run "sudo -u '$USER_NAME' git -C '$INSTALL_DIR' fetch origin"
-	run "sudo -u '$USER_NAME' git -C '$INSTALL_DIR' checkout '$BRANCH'"
-	run "sudo -u '$USER_NAME' git -C '$INSTALL_DIR' pull --ff-only"
+	run "${GIT_PREFIX}git -C '$INSTALL_DIR' fetch origin"
+	run "${GIT_PREFIX}git -C '$INSTALL_DIR' checkout '$BRANCH'"
+	run "${GIT_PREFIX}git -C '$INSTALL_DIR' pull --ff-only"
 elif [[ -e "$INSTALL_DIR" ]]; then
 	fail "$INSTALL_DIR exists and isn't a git checkout — rename it or use --install-dir elsewhere"
 else
 	log "cloning $REPO (branch $BRANCH) → $INSTALL_DIR"
-	run "install -d -o '$USER_NAME' -g '$USER_NAME' '$(dirname "$INSTALL_DIR")'"
-	run "sudo -u '$USER_NAME' git clone --branch '$BRANCH' '$REPO' '$INSTALL_DIR'"
+	if [[ "$MODE" != "local" ]]; then
+		run "install -d -o '$USER_NAME' -g '$USER_NAME' '$(dirname "$INSTALL_DIR")'"
+	else
+		run "mkdir -p '$(dirname "$INSTALL_DIR")'"
+	fi
+	run "${GIT_PREFIX}git clone --branch '$BRANCH' '$REPO' '$INSTALL_DIR'"
 fi
 
 # ─── .env (only if missing) ──────────────────────────────────────────────────
+# AUTH_URL format: https://<domain> for full+proxy, http://localhost:PORT for local.
+if [[ "$MODE" == "local" ]]; then
+	AUTH_URL_VALUE="http://localhost:$PORT"
+else
+	AUTH_URL_VALUE="https://$DOMAIN"
+fi
 if [[ ! -f "$INSTALL_DIR/.env" ]]; then
-	log "generating .env (AUTH_SECRET auto-generated)"
+	log "generating .env (AUTH_SECRET auto-generated, AUTH_URL=$AUTH_URL_VALUE)"
 	AUTH_SECRET=$(openssl rand -hex 32)
 	if (( !DRY_RUN )); then
 		sed \
 			-e "s|__AUTH_SECRET__|$AUTH_SECRET|" \
-			-e "s|__AUTH_URL__|https://$DOMAIN|" \
+			-e "s|__AUTH_URL__|$AUTH_URL_VALUE|" \
 			-e "s|__WORKTREE_ROOT__|$WORKTREE_ROOT|" \
 			"$INSTALL_DIR/scripts/install/env.template" > "$INSTALL_DIR/.env"
-		chown "$USER_NAME:$USER_NAME" "$INSTALL_DIR/.env"
+		if [[ "$MODE" != "local" ]]; then
+			chown "$USER_NAME:$USER_NAME" "$INSTALL_DIR/.env"
+		fi
 		chmod 600 "$INSTALL_DIR/.env"
 	fi
 else
@@ -184,34 +268,55 @@ fi
 
 # ─── Install deps + migrate + build ──────────────────────────────────────────
 log "npm ci + db:migrate + build (this takes a minute)"
-run "sudo -u '$USER_NAME' bash -lc '
-	cd \"$INSTALL_DIR\" &&
-	source \$HOME/.nvm/nvm.sh && nvm use 20 &&
-	npm ci &&
-	npm run db:migrate &&
-	npm run build
-'"
-
-# ─── Render + install systemd unit ───────────────────────────────────────────
-UNIT_FILE="/etc/systemd/system/$APP_SLUG.service"
-log "writing systemd unit: $UNIT_FILE"
-if (( !DRY_RUN )); then
-	sed \
-		-e "s|__APP_NAME__|$APP_SLUG|g" \
-		-e "s|__USER__|$USER_NAME|g" \
-		-e "s|__INSTALL_DIR__|$INSTALL_DIR|g" \
-		-e "s|__PORT__|$PORT|g" \
-		-e "s|__NODE_BIN_DIR__|$NODE_BIN_DIR|g" \
-		"$INSTALL_DIR/scripts/install/systemd-unit.template" > "$UNIT_FILE"
-	chmod 644 "$UNIT_FILE"
+if [[ "$MODE" == "local" ]]; then
+	run "bash -lc 'cd \"$INSTALL_DIR\" && source \$HOME/.nvm/nvm.sh && nvm use 20 && npm ci && npm run db:migrate && npm run build'"
+else
+	run "sudo -u '$USER_NAME' bash -lc 'cd \"$INSTALL_DIR\" && source \$HOME/.nvm/nvm.sh && nvm use 20 && npm ci && npm run db:migrate && npm run build'"
 fi
 
-run "systemctl daemon-reload"
-run "systemctl enable '$APP_SLUG'"
-run "systemctl reset-failed '$APP_SLUG' 2>/dev/null || true"
-run "systemctl restart '$APP_SLUG'"
+# ─── Start the service (mode-specific) ───────────────────────────────────────
+if [[ "$MODE" == "local" ]]; then
+	log "starting local background process on :$PORT"
+	PIDFILE="$INSTALL_DIR/aiops.pid"
+	LOGFILE="$INSTALL_DIR/aiops.log"
+	# Kill prior instance if pidfile exists + process alive
+	if [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
+		log "stopping prior instance (pid $(cat "$PIDFILE"))"
+		run "kill $(cat "$PIDFILE") || true"
+		sleep 1
+	fi
+	if (( !DRY_RUN )); then
+		(
+			cd "$INSTALL_DIR"
+			source "$HOME/.nvm/nvm.sh"
+			nvm use 20 >/dev/null
+			nohup npm start > "$LOGFILE" 2>&1 &
+			echo $! > "$PIDFILE"
+		)
+		log "started (pid $(cat "$PIDFILE")); logs at $LOGFILE"
+	fi
+else
+	# Render + install systemd unit
+	UNIT_FILE="/etc/systemd/system/$APP_SLUG.service"
+	log "writing systemd unit: $UNIT_FILE"
+	if (( !DRY_RUN )); then
+		sed \
+			-e "s|__APP_NAME__|$APP_SLUG|g" \
+			-e "s|__USER__|$USER_NAME|g" \
+			-e "s|__INSTALL_DIR__|$INSTALL_DIR|g" \
+			-e "s|__PORT__|$PORT|g" \
+			-e "s|__NODE_BIN_DIR__|$NODE_BIN_DIR|g" \
+			"$INSTALL_DIR/scripts/install/systemd-unit.template" > "$UNIT_FILE"
+		chmod 644 "$UNIT_FILE"
+	fi
+	run "systemctl daemon-reload"
+	run "systemctl enable '$APP_SLUG'"
+	run "systemctl reset-failed '$APP_SLUG' 2>/dev/null || true"
+	run "systemctl restart '$APP_SLUG'"
+fi
 
-# ─── Caddy block (idempotent) ────────────────────────────────────────────────
+# ─── Caddy block (full mode only; idempotent) ────────────────────────────────
+if [[ "$MODE" == "full" ]]; then
 CADDYFILE=/etc/caddy/Caddyfile
 if [[ ! -f "$CADDYFILE" ]]; then
 	log "creating $CADDYFILE"
@@ -242,6 +347,7 @@ else
 	fi
 	run "systemctl reload caddy || systemctl restart caddy"
 fi
+fi  # end: Caddy block only for full mode
 
 # ─── Wait for /api/health ────────────────────────────────────────────────────
 log "waiting up to 60s for http://localhost:$PORT/api/health"
@@ -255,8 +361,12 @@ if (( !DRY_RUN )); then
 		sleep 1
 	done
 	if (( !OK )); then
-		warn "/api/health didn't respond within 60s — tailing last 30 log lines:"
-		journalctl -u "$APP_SLUG" -n 30 --no-pager || true
+		warn "/api/health didn't respond within 60s — showing recent logs:"
+		if [[ "$MODE" == "local" ]]; then
+			tail -n 30 "$INSTALL_DIR/aiops.log" 2>/dev/null || true
+		else
+			journalctl -u "$APP_SLUG" -n 30 --no-pager || true
+		fi
 		fail "service didn't start cleanly"
 	fi
 fi
@@ -267,26 +377,51 @@ log "╭────────────────────────
 log "│                    ✓  INSTALL COMPLETE                       │"
 log "╰──────────────────────────────────────────────────────────────╯"
 log ""
-log "App URL:         https://$DOMAIN"
+case "$MODE" in
+	full)
+		log "App URL:        https://$DOMAIN"
+		log "Mode:           full (systemd + Caddy + Let's Encrypt)"
+		;;
+	proxy)
+		log "App URL:        http://localhost:$PORT  (wire your own reverse proxy)"
+		log "Mode:           proxy (systemd only; no Caddy)"
+		;;
+	local)
+		log "App URL:        http://localhost:$PORT"
+		log "Mode:           local (background process, no systemd, no TLS)"
+		;;
+esac
 log "Service:         $APP_SLUG"
 log "Install dir:     $INSTALL_DIR"
-log "Worktree root:   $WORKTREE_ROOT"
 log ""
 log "Day-to-day commands:"
-log "  sudo systemctl status $APP_SLUG"
-log "  journalctl -u $APP_SLUG -f"
-log "  cd $INSTALL_DIR && git pull && npm ci && npm run build && sudo systemctl restart $APP_SLUG"
+if [[ "$MODE" == "local" ]]; then
+	log "  tail -f $INSTALL_DIR/aiops.log                # live logs"
+	log "  kill \$(cat $INSTALL_DIR/aiops.pid)             # stop"
+	log "  bash $INSTALL_DIR/scripts/install.sh --mode local --install-dir $INSTALL_DIR  # re-install / restart"
+else
+	log "  sudo systemctl status $APP_SLUG"
+	log "  journalctl -u $APP_SLUG -f"
+	log "  cd $INSTALL_DIR && git pull && npm ci && npm run build && sudo systemctl restart $APP_SLUG"
+fi
 log ""
-log "── First-run setup URL (grab from journal) ───────────────────"
-journalctl -u "$APP_SLUG" --since "10 min ago" -o cat 2>/dev/null | \
-	grep -A2 "SETUP REQUIRED" | head -5 || \
-	log "  (none yet — hit https://$DOMAIN/setup after DNS + TLS are up)"
+log "── First-run setup URL ───────────────────────────────────────"
+if [[ "$MODE" == "local" ]]; then
+	log "  open http://localhost:$PORT in a browser"
+	log "  or: grep -A2 'SETUP REQUIRED' $INSTALL_DIR/aiops.log"
+else
+	journalctl -u "$APP_SLUG" --since "10 min ago" -o cat 2>/dev/null | \
+		grep -A2 "SETUP REQUIRED" | head -5 || \
+		log "  (none yet — hit $AUTH_URL_VALUE/setup after it's reachable)"
+fi
 log ""
 log "── Google OAuth — add this redirect URI ──────────────────────"
-log "  https://$DOMAIN/api/auth/callback/google"
-log ""
-log "── Caddy TLS ─────────────────────────────────────────────────"
-log "  Caddy will issue a Let's Encrypt cert on first HTTPS request."
-log "  If curl -I https://$DOMAIN/api/health returns a self-signed cert,"
-log "  DNS hasn't propagated or port 80 is firewalled — check:"
-log "    sudo journalctl -u caddy -n 30 --no-pager | grep -iE 'acme|cert'"
+log "  $AUTH_URL_VALUE/api/auth/callback/google"
+if [[ "$MODE" == "full" ]]; then
+	log ""
+	log "── Caddy TLS ─────────────────────────────────────────────────"
+	log "  Caddy will issue a Let's Encrypt cert on first HTTPS request."
+	log "  If curl -I https://$DOMAIN/api/health returns a self-signed cert,"
+	log "  DNS hasn't propagated or port 80 is firewalled — check:"
+	log "    sudo journalctl -u caddy -n 30 --no-pager | grep -iE 'acme|cert'"
+fi
