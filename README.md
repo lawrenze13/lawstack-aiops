@@ -1,23 +1,63 @@
 # LawStack/aiops
 
-Next.js 15 swimlane UI for driving Claude Code agents on Jira tickets. Replaces the existing Slack + n8n + `ticket-worker.sh` flow on this VPS.
+Operator console for Claude Code — ticket → PR, in lanes. Drives the
+Compound Engineering pipeline (brainstorm → plan → review → implement)
+against Jira tickets, one agent per lane, artifacts stored in DB,
+served behind Caddy.
 
-See [`docs/plans/2026-04-20-feat-nextjs-agent-swimlanes-orchestration-plan.md`](docs/plans/2026-04-20-feat-nextjs-agent-swimlanes-orchestration-plan.md) for the canonical architecture and roadmap.
+## Install on a fresh Ubuntu / Debian VPS
+
+One command — installs Caddy, Node 20, the Claude CLI, and this app as
+a systemd service behind Caddy TLS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lawrenze13/lawstack-aiops/main/scripts/install.sh \
+  | sudo bash -s -- \
+    --domain aiops.yourdomain.tld \
+    --user $(whoami)
+```
+
+**What you need first:**
+
+- A DNS `A` record for `aiops.yourdomain.tld` → your VPS's public IP
+  (`dig aiops.yourdomain.tld +short` should match `curl https://api.ipify.org`)
+- Ports 80 + 443 open inbound (Let's Encrypt needs 80 for HTTP-01)
+- A unix user with `sudo` (create one: `sudo useradd -m -s /bin/bash deploy`)
+- A Google OAuth Web Application Client with redirect URI set to
+  `https://aiops.yourdomain.tld/api/auth/callback/google`
+  (the installer prints this reminder at the end)
+
+**After install completes:**
+
+1. Tail the journal to grab the one-time setup URL:
+   `sudo journalctl -u aiops-aiops -n 30 | grep -A2 "SETUP REQUIRED"`
+2. Open that URL in a browser — walk the 6 wizard steps (Google OAuth
+   credentials, Jira, paths, agents)
+3. Sign in with Google; the first signed-in user auto-promotes to admin
+
+See [`docs/install-checklist.md`](docs/install-checklist.md) for the
+full step-by-step and troubleshooting.
+
+### Uninstall
+
+```bash
+sudo bash /var/www/aiops.yourdomain.tld/scripts/uninstall.sh \
+  --domain aiops.yourdomain.tld
+```
+
+Add `--purge-data --purge-env` for scorched-earth removal.
 
 ## Stack
 
 - Next.js 15 (App Router, Node runtime) + TypeScript strict
-- Auth.js v5 + Google (restricted to `@multiportal.io`)
+- Auth.js v5 + Google (domain-restricted — configured via wizard)
 - better-sqlite3 + Drizzle ORM (WAL mode)
-- shadcn/ui + Tailwind v4 + dnd-kit
-- `child_process.spawn('claude', ...)` for agent execution (post Phase 1)
-- SSE for live streaming (post Phase 1)
+- HeroUI v3 + Tailwind v4 + dnd-kit
+- `child_process.spawn('claude', ...)` for agent execution
+- SSE for live streaming
+- systemd + Caddy for production
 
-## Status
-
-Phase 1 (Foundation) — in progress. Phases 2–4 deliver the agent runner, Approve & PR pipeline, and Slack cutover.
-
-## Quick start
+## Quick start (development)
 
 ```bash
 nvm use                         # picks Node 20 from .nvmrc

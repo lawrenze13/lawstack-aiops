@@ -74,13 +74,29 @@ log "Installing $APP_SLUG → $DOMAIN at $INSTALL_DIR"
 # ─── Preflight ───────────────────────────────────────────────────────────────
 [[ $EUID -eq 0 ]]                        || fail "must run as root (use sudo)"
 command -v systemctl >/dev/null          || fail "systemd is required"
-command -v caddy >/dev/null              || fail "Caddy 2.x not installed (run: curl -fsSL https://get.caddyserver.com/linux/install.sh | bash)"
-command -v git >/dev/null                || fail "git not installed"
-command -v openssl >/dev/null            || fail "openssl not installed"
-command -v curl >/dev/null               || fail "curl not installed"
+command -v git >/dev/null                || fail "git not installed (apt-get install -y git)"
+command -v openssl >/dev/null            || fail "openssl not installed (apt-get install -y openssl)"
+command -v curl >/dev/null               || fail "curl not installed (apt-get install -y curl)"
 command -v sqlite3 >/dev/null            || warn "sqlite3 CLI not installed — fine, but you won't be able to inspect the DB directly"
 id "$USER_NAME" >/dev/null 2>&1          || fail "user '$USER_NAME' does not exist (create it first: useradd -m -s /bin/bash $USER_NAME)"
 [[ -w /etc/systemd/system ]]             || fail "cannot write to /etc/systemd/system"
+
+# Auto-install Caddy 2.x if missing (Debian / Ubuntu via the official apt repo).
+# On non-deb distros the installer fails here — install Caddy manually.
+if ! command -v caddy >/dev/null; then
+	if command -v apt-get >/dev/null; then
+		log "Caddy not found — installing via official apt repo"
+		run "apt-get update -qq"
+		run "apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https gnupg"
+		run "curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg"
+		run "curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list"
+		run "apt-get update -qq && apt-get install -y -qq caddy"
+	else
+		fail "Caddy 2.x not installed AND apt-get not available. See https://caddyserver.com/docs/install"
+	fi
+fi
+command -v caddy >/dev/null || fail "Caddy install failed — check apt output above"
+
 [[ -w /etc/caddy ]] || [[ ! -e /etc/caddy/Caddyfile ]] || fail "cannot write to /etc/caddy"
 
 # DNS sanity check (warn only — cert will just fail to provision until fixed)
@@ -110,6 +126,25 @@ run "sudo -u '$USER_NAME' bash -lc 'source \$HOME/.nvm/nvm.sh && nvm install 20 
 NODE_BIN_DIR=$(sudo -u "$USER_NAME" bash -lc 'source $HOME/.nvm/nvm.sh && nvm use 20 >/dev/null && dirname $(which npm)')
 [[ -x "$NODE_BIN_DIR/npm" ]] || fail "could not resolve npm path for $USER_NAME (got: $NODE_BIN_DIR/npm)"
 log "node bin dir: $NODE_BIN_DIR"
+
+# Install Claude CLI globally for the service user. The orchestrator
+# spawns `claude` as a subprocess for every agent run — without it
+# on the user's PATH, runs fail with ENOENT.
+if ! sudo -u "$USER_NAME" bash -lc 'source $HOME/.nvm/nvm.sh && nvm use 20 >/dev/null && command -v claude >/dev/null'; then
+	log "installing @anthropic-ai/claude-code globally for $USER_NAME"
+	run "sudo -u '$USER_NAME' bash -lc '
+		source \$HOME/.nvm/nvm.sh && nvm use 20 >/dev/null &&
+		npm install -g @anthropic-ai/claude-code
+	'"
+fi
+
+# Verify claude CLI is on the service user's PATH — this PATH is what
+# systemd will inherit via the nvm-aware Environment=PATH line in the
+# unit template, so `claude` binary MUST be in $NODE_BIN_DIR.
+if ! [[ -x "$NODE_BIN_DIR/claude" ]]; then
+	warn "claude CLI not found at $NODE_BIN_DIR/claude after install"
+	warn "runs will fail until the user installs: npm install -g @anthropic-ai/claude-code"
+fi
 
 # ─── Directories ─────────────────────────────────────────────────────────────
 run "mkdir -p '$WORKTREE_ROOT'"
