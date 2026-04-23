@@ -19,13 +19,19 @@ with a `--mode` flag.
 | **`proxy`** | App + systemd service | Yes | You handle it | You already run nginx, Cloudflare Tunnel, Traefik, etc. |
 | **`full`** | App + systemd + Caddy + Let's Encrypt | Yes | Automatic | Fresh public VPS |
 
+> **Note:** the `curl … | bash` snippets below pin to `v0.1.0` (a git
+> tag) rather than `main`. GitHub's raw-content CDN caches `main`
+> aggressively — pinning to a tag avoids "I pushed a fix but the next
+> install still got the old script" gotchas. Bump the tag in the URL
+> when you want a newer release.
+
 ### Local mode — no domain, no Caddy, no sudo
 
 Good for trying it on a laptop or single-user home server. Runs on
 `http://localhost:3300` with a pidfile; zero external surface.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lawrenze13/lawstack-aiops/main/scripts/install.sh \
+curl -fsSL https://raw.githubusercontent.com/lawrenze13/lawstack-aiops/v0.1.0/scripts/install.sh \
   | bash -s -- --mode local
 ```
 
@@ -50,7 +56,7 @@ You run nginx / Cloudflare Tunnel / Traefik / whatever. Installer sets
 up a systemd service on `localhost:PORT`; you wire it up externally.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lawrenze13/lawstack-aiops/main/scripts/install.sh \
+curl -fsSL https://raw.githubusercontent.com/lawrenze13/lawstack-aiops/v0.1.0/scripts/install.sh \
   | sudo bash -s -- \
     --mode proxy \
     --user deploy \
@@ -66,7 +72,7 @@ point your existing reverse proxy at `http://localhost:3300`.
 One command, fresh public VPS → working HTTPS deploy:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/lawrenze13/lawstack-aiops/main/scripts/install.sh \
+curl -fsSL https://raw.githubusercontent.com/lawrenze13/lawstack-aiops/v0.1.0/scripts/install.sh \
   | sudo bash -s -- \
     --mode full \
     --domain aiops.yourdomain.tld \
