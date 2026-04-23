@@ -280,11 +280,14 @@ else
 fi
 
 # ─── Install deps + migrate + build ──────────────────────────────────────────
+# Export PORT for the build so any banner printed during `next build`
+# (the setup-token banner fires when page-data collection imports the
+# init chain) uses the right URL instead of defaulting to 3300.
 log "npm ci + db:migrate + build (this takes a minute)"
 if [[ "$MODE" == "local" ]]; then
-	run "bash -lc 'cd \"$INSTALL_DIR\" && source \$HOME/.nvm/nvm.sh && nvm use 20 && npm ci && npm run db:migrate && npm run build'"
+	run "bash -lc 'cd \"$INSTALL_DIR\" && source \$HOME/.nvm/nvm.sh && nvm use 20 && export PORT=$PORT && npm ci && npm run db:migrate && npm run build'"
 else
-	run "sudo -u '$USER_NAME' bash -lc 'cd \"$INSTALL_DIR\" && source \$HOME/.nvm/nvm.sh && nvm use 20 && npm ci && npm run db:migrate && npm run build'"
+	run "sudo -u '$USER_NAME' bash -lc 'cd \"$INSTALL_DIR\" && source \$HOME/.nvm/nvm.sh && nvm use 20 && export PORT=$PORT && npm ci && npm run db:migrate && npm run build'"
 fi
 
 # ─── Start the service (mode-specific) ───────────────────────────────────────
@@ -303,7 +306,11 @@ if [[ "$MODE" == "local" ]]; then
 			cd "$INSTALL_DIR"
 			source "$HOME/.nvm/nvm.sh"
 			nvm use 20 >/dev/null
-			nohup npm start > "$LOGFILE" 2>&1 &
+			# Bypass `npm start` because package.json hardcodes -p 3300,
+			# which overrides PORT env. Use `next start -p <PORT>` directly
+			# with the local install's binary so --port is honoured.
+			export PORT="$PORT"
+			nohup "$NODE_BIN_DIR/npx" next start -p "$PORT" > "$LOGFILE" 2>&1 &
 			echo $! > "$PIDFILE"
 		)
 		log "started (pid $(cat "$PIDFILE")); logs at $LOGFILE"
