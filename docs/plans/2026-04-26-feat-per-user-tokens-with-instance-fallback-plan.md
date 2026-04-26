@@ -793,18 +793,18 @@ Files:
   clicks Test, asserts Save enabled only on success.
 
 Acceptance:
-- [ ] User opens `/profile`, sees three cards in "Connections" section.
-- [ ] User enters Jira creds, clicks Test → server calls `/myself`, returns `{ok, details: {displayName, accountId, ...}}` → UI displays "Connected as: <name> (<email>)".
-- [ ] User clicks Save → encrypted blob persisted in `user_prefs.credentialsJson` (verified: `SELECT credentials_json FROM user_prefs WHERE user_id='X'` shows `enc:v1:...` substring).
-- [ ] User reloads /profile → masked values displayed.
-- [ ] User clicks "Use instance default" → DELETE clears that service's block.
-- [ ] GitHub Test with valid token + valid `BASE_REPO` → `details.repoAccess: {ok:true}`.
-- [ ] GitHub Test with valid token + missing `BASE_REPO` → `details.repoAccess: undefined`, warning banner shown.
-- [ ] **CSRF**: POST without `Origin` header (or with mismatching Origin) → 403 with no audit row.
-- [ ] **Rate limit**: 6th test/min returns 429.
-- [ ] **Lockout**: 6 consecutive failures → 30-min block; success resets the counter.
-- [ ] Failed save (invalid token) does NOT persist anything.
-- [ ] Audit log shows `credentials.set` with `{service, userId, tokenFingerprint}` (16-char hex, NOT the token); `credentials.tested` with `{service, userId, outcome, from_ip}`.
+- [x] User opens `/profile`, sees three cards in "Connections" section (Jira / GitHub / Git identity).
+- [x] User enters Jira creds, clicks Test → server calls `/myself`, returns `{ok, details: {displayName, accountId, emailAddress}}` → UI displays "Connected as: <name> (<email>)".
+- [x] User clicks Save → encrypted blob persisted in `user_prefs.credentialsJson` (`enc:v1:` envelope with AAD = `user_prefs:tokens:v1:<userId>:jira.apiToken`).
+- [x] User reloads /profile → masked values displayed (`***<last4>` for tokens; full plaintext for non-secret fields).
+- [x] User clicks "Use instance default" → DELETE clears that service's block via `clearUserCredentialService`.
+- [x] GitHub Test with valid token + valid `BASE_REPO` → `details.repoAccess: {ok:true, fullName}`.
+- [x] GitHub Test with valid token + missing `BASE_REPO` → `details.repoAccess: undefined`, `details.warning` banner shown.
+- [x] **CSRF**: `Origin` header verified against `AUTH_URL` on every state-changing route; 403 on mismatch with NO audit row written (probes don't pollute the log).
+- [x] **Rate limit**: existing `rateLimit.ts` substrate; 5/min + 30/hour windows per `(user, service)`; 429 with Retry-After.
+- [x] **Lockout**: 5 consecutive failures in 1h → 30-min block; recordSuccess clears counter; `credentials.test_locked_out` audit on threshold-cross.
+- [x] Failed save (invalid token) does NOT persist anything — save endpoint re-runs the test and returns 400 with `{reason}` when it fails.
+- [x] Audit log: `credentials.set` with `{service, userId, tokenFingerprint}` (sha256.slice(0,16), NEVER the token); `credentials.tested` with `{service, userId, outcome}` + `actorIp`; `credentials.cleared` with `{service}`.
 
 #### Phase 5: Failure surfacing + admin visibility (Day 6, ~5h)
 

@@ -8,6 +8,10 @@ import { readUserPrefs } from "@/server/lib/userPrefs";
 import { IdentitySection } from "@/components/profile/IdentitySection";
 import { AgentDefaultsSection } from "@/components/profile/AgentDefaultsSection";
 import { NotificationPrefsSection } from "@/components/profile/NotificationPrefsSection";
+import { ConnectionsSection } from "@/components/profile/ConnectionsSection";
+import type { JiraInitial } from "@/components/profile/JiraConnectionCard";
+import type { GithubInitial } from "@/components/profile/GithubConnectionCard";
+import type { GitIdentityInitial } from "@/components/profile/GitIdentityCard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -98,7 +102,57 @@ export default async function ProfilePage() {
           models={MODEL_OPTIONS}
         />
         <NotificationPrefsSection initial={prefs.notifications} />
+        <ConnectionsSection
+          jira={initialJira(prefs)}
+          github={initialGithub(prefs)}
+          git={initialGit(prefs)}
+          defaultGitName={row?.name ?? ""}
+          defaultGitEmail={row?.email ?? user.email ?? ""}
+        />
       </div>
     </div>
   );
+}
+
+function initialJira(
+  prefs: ReturnType<typeof readUserPrefs>,
+): JiraInitial {
+  if (!prefs.credentials.jira) return { configured: false };
+  const j = prefs.credentials.jira;
+  return {
+    configured: true,
+    baseUrl: j.baseUrl,
+    email: j.email,
+    displayName: j.displayName ?? null,
+    accountId: j.accountId ?? null,
+    tokenLast4: last4(String(j.apiToken)),
+  };
+}
+
+function initialGithub(
+  prefs: ReturnType<typeof readUserPrefs>,
+): GithubInitial {
+  if (!prefs.credentials.github) return { configured: false };
+  const g = prefs.credentials.github;
+  return {
+    configured: true,
+    login: g.login ?? null,
+    tokenLast4: last4(String(g.token)),
+  };
+}
+
+function initialGit(
+  prefs: ReturnType<typeof readUserPrefs>,
+): GitIdentityInitial {
+  if (!prefs.credentials.git) return { configured: false };
+  return {
+    configured: true,
+    name: prefs.credentials.git.name,
+    email: prefs.credentials.git.email,
+  };
+}
+
+function last4(s: string): string {
+  if (!s || s.length < 4) return "***";
+  return `***${s.slice(-4)}`;
 }
