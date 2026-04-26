@@ -2,6 +2,7 @@
 title: Customizable Workflows & Custom Agents
 status: active
 date: 2026-04-23
+last_revised: 2026-04-24
 topic: customizable-workflows
 ---
 
@@ -11,6 +12,67 @@ Turn LawStack/aiops from an opinionated CE-shaped orchestrator into a
 configurable agent pipeline where operators define their own lanes,
 their own agents (prompt + model), and save named workflows they pick
 from at ticket creation.
+
+## 2026-04-24 update — v1 scope cut
+
+A follow-up brainstorm session pruned this design to a smaller MVP.
+The full vision below is preserved as the **v2 target**. **v1 ships
+the smallest end-to-end slice**:
+
+| Aspect | v1 (next ship) | v2 (vision below) |
+|---|---|---|
+| Number of workflows | **One** instance-wide workflow | Unlimited named workflows |
+| Custom agents | **No** — agent pool stays code-defined | Yes — operator creates agents in /admin/agents |
+| Where edited | **/admin/settings** (added section) | Three new admin screens |
+| Ticket assignment | All tickets use the one workflow | Workflow dropdown on ticket creation |
+| Multi-repo | **Single-repo (BASE_REPO)** unchanged | Repo registry + per-repo workflows |
+| Rails (always present) | `ticket → branch → … → pr → done` | Same |
+| Open (operator-customizable) | `brainstorm`, `plan`, `review`, `implement` (lane add/remove/reorder, agent swap, prompt context append) | Same shape, more pages |
+| Required-with-fixed-position | `implement` (must produce PR) — agent swappable | Same |
+
+**Why narrow further:** the user explicitly chose "single-repo, single
+workflow" and "DB-backed admin UI" over the more ambitious branches.
+The v2 features (named workflows, custom agents, repo registry) all
+build cleanly on top of v1's data model — v1 is not a dead-end, it's
+the first vertical slice. Estimated v1 effort: **3–5 days** vs. v2's
+~10.
+
+**v1 acceptance criteria — workflow editor:**
+- Admin opens `/admin/settings`, sees a "Workflow" section with the
+  four open lanes listed in order.
+- Can drag-reorder, add a new lane (picking from the existing agent
+  pool of 8), remove a lane, swap which agent runs in each lane,
+  append free-text prompt context per lane.
+- Cannot remove `implement`, cannot remove rails, cannot break the
+  state machine.
+- Saving updates `LANES` everywhere (Board, dashboard, run dispatch)
+  on next page load — no restart.
+- New tickets immediately use the new workflow; in-flight tickets
+  are NOT migrated (their `lane` value persists; if their current
+  lane was removed, the operator manually advances them via existing
+  card actions).
+
+**v1 acceptance criteria — agent management:**
+- New `/admin/agents` page (separate from `/admin/settings`) lists
+  the 8 code-defined agents in a table: id, label, model, cost caps.
+- Click row → drawer or dedicated subpage with a friendly per-agent
+  editor for the three operator-tunable fields: **model** (select),
+  **costWarnUsd / costKillUsd** (numbers), **promptAppend** (textarea).
+- Base prompt + tools + maxTurns + permission mode stay code-defined
+  (read-only on the page, shown for context).
+- "Create agent" button is **NOT** present in v1 — defers prompt-template
+  evaluation, tool-sandbox, and validation work to v2.
+- Existing `AGENT_OVERRIDES` JSON blob auto-imports into the per-agent
+  rows on first boot after this ships (no operator action needed).
+- Workflow editor's lane→agent dropdown shows the same 8 agents,
+  filtered by `agent.lanes` (e.g. `ce:brainstorm` only available for
+  the brainstorm lane).
+- Admin-only for both `/admin/agents` and the workflow section.
+
+The v2 sections below stay as the long-term plan and reference for
+what NOT to over-engineer in v1.
+
+---
 
 ## Strategic tension (read this first)
 
