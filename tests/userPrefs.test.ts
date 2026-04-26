@@ -85,7 +85,7 @@ beforeEach(async () => {
 describe("userPrefs read/write", () => {
   it("returns DEFAULTS when no row exists", () => {
     const r = mod.readUserPrefs("u1");
-    expect(r).toEqual({ agentOverrides: {}, notifications: {} });
+    expect(r).toEqual({ agentOverrides: {}, notifications: {}, credentials: {} });
   });
 
   it("persists overrides via writeUserPrefs + reads back", () => {

@@ -60,6 +60,10 @@ export const configSchema = z.object({
   JIRA_BASE_URL: optionalStr(z.string().url()),
   JIRA_EMAIL: optionalStr(z.string().email()),
   JIRA_API_TOKEN: optionalStr(z.string().min(1)),
+  // Promoted from env-only to settings as part of per-user-tokens v1.
+  // Stored encrypted-at-rest from Phase 2 onward (see
+  // scripts/migrate-instance-secrets.ts and the per-user-tokens plan).
+  GITHUB_TOKEN: optionalStr(z.string().min(1)),
   DATABASE_URL: z.string().min(1).default("./data/app.db"),
   WORKTREE_ROOT: z.string().min(1).default("/var/aiops/worktrees"),
   BASE_REPO: optionalStr(z.string().min(1)),

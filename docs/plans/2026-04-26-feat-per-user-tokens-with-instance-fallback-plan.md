@@ -511,17 +511,14 @@ work begins.
 
 - [x] `tasks.ownerId` exists (`server/db/schema.ts:82-84`) — no
   ownership migration needed.
-- [ ] Verify `/admin/users` page existence. Search results: a
-  `/admin` index exists; `/admin/users` does NOT — Phase 5 creates it
-  fresh at `app/(sidebar)/admin/users/page.tsx`.
-- [ ] Confirm `server/lib/rateLimit.ts` exists and is reusable. If
-  it doesn't, Phase 4 creates it (one-time investment, used by this
-  feature and any future rate-limited endpoint).
-- [ ] **NEW** `docs/adrs/0001-resolver-pattern.md` — write the ADR
-  documenting the overlay+sources+lazy-require contract for any
-  future per-user resolver (`getAgent`, `resolveCredentials`,
-  `resolveWorkflow`). Both the customizable-workflow plan and this
-  plan link to it as the canonical contract.
+- [x] Verified `/admin/users` page does NOT exist (only `/admin/ops`
+  and `/admin/settings`). Phase 5 will create it fresh at
+  `app/(sidebar)/admin/users/page.tsx`.
+- [x] Confirmed `server/lib/rateLimit.ts` exists with the
+  `rateLimit(key, limit, windowMs) → RateLimitResult` shape. Phase 4
+  reuses; no new module needed.
+- [x] **NEW** `docs/adrs/0001-resolver-pattern.md` — overlay +
+  sources + lazy-require contract written.
 
 #### Phase 1: Encryption substrate + resolver (Day 1, ~7h)
 
@@ -565,14 +562,14 @@ Files:
 - **NEW** `docs/adrs/0001-resolver-pattern.md` — ADR text (~1 page).
 
 Acceptance:
-- [ ] `encrypt(p, aad) → enc:v1:X` then `decrypt(X, aad) === p` for any plaintext + AAD.
-- [ ] `decrypt(X, otherAad)` throws GCM auth-tag failure (cross-user AND cross-field replay rejected).
-- [ ] Two encryptions of the same plaintext produce different envelopes (random IV).
-- [ ] HKDF-derived key is identical across module reloads with the same `AUTH_SECRET`.
-- [ ] `resolveCredentials(userId, 'jira')` for a non-existent user returns `{source: 'instance', ...}` if instance is configured, else `{source: 'missing', value: null}`.
-- [ ] First call to `encrypt` throws fast if neither env var is set in production AND `AUTH_SECRET` is < 32 bytes.
-- [ ] `parseEnvelope("enc:v1:bad")` returns `{ok:false, error:'bad-base64'}` — typed error, not throw.
-- [ ] All new tests green; existing 58 vitest tests still green.
+- [x] `encrypt(p, aad) → enc:v1:X` then `decrypt(X, aad) === p` for any plaintext + AAD.
+- [x] `decrypt(X, otherAad)` throws GCM auth-tag failure (cross-user AND cross-field replay rejected).
+- [x] Two encryptions of the same plaintext produce different envelopes (random IV).
+- [x] HKDF-derived key is identical across module reloads with the same `AUTH_SECRET`.
+- [x] `resolveCredentials(userId, 'jira')` for a non-existent user returns `{source: 'instance', ...}` if instance is configured, else `{source: 'missing', value: null}`.
+- [x] First call to `encrypt` throws fast if neither env var is set in production AND `AUTH_SECRET` is < 32 bytes.
+- [x] `parseEnvelope("enc:v1:bad")` returns typed error (covered: `bad-base64`, `wrong-prefix`, `unknown-version`, `short-iv`, `short-tag`).
+- [x] All new tests green; existing 58 vitest tests still green (85/85 total).
 
 #### Phase 2: Standalone migration runner + GH promotion (Day 2 morning, ~4h)
 

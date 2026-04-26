@@ -167,6 +167,12 @@ export const runs = sqliteTable(
       .default(sql`(unixepoch() * 1000)`),
     finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
     killedReason: text("killed_reason"),
+    // Records which source (user override vs instance default) supplied
+    // each credential at run start. Queryable for instance-fallback
+    // audits ("which users relied on the box's god-token last week?").
+    // NULL on legacy rows; populated for every new run from Phase 3.
+    jiraTokenSource: text("jira_token_source"),
+    githubTokenSource: text("github_token_source"),
   },
   (t) => ({
     taskLaneIdx: index("runs_task_lane_idx").on(t.taskId, t.lane),
@@ -321,8 +327,8 @@ export const settings = sqliteTable("settings", {
 });
 
 // Per-user preferences: agent defaults (overlay on AGENT_OVERRIDES at
-// run start) + notification toggles. One row per user, lazily created
-// on first save.
+// run start) + notification toggles + per-service credentials. One
+// row per user, lazily created on first save.
 export const userPrefs = sqliteTable("user_prefs", {
   userId: text("user_id")
     .primaryKey()
@@ -331,6 +337,10 @@ export const userPrefs = sqliteTable("user_prefs", {
   agentOverridesJson: text("agent_overrides_json").notNull().default("{}"),
   // JSON: { onComplete?: bool, onFailure?: bool, onAwaitingInput?: bool }
   notificationsJson: text("notifications_json").notNull().default("{}"),
+  // JSON: { jira?: JiraDisk, github?: GithubDisk, git?: GitIdentity }.
+  // Secret subfields stored as "enc:v1:..." envelopes — see
+  // server/lib/encryption.ts and server/integrations/credentialsSchema.ts.
+  credentialsJson: text("credentials_json").notNull().default("{}"),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" })
     .notNull()
     .default(sql`(unixepoch() * 1000)`),
