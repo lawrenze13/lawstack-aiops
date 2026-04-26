@@ -41,9 +41,19 @@ Set up ONCE per install in Google Cloud Console:
 
 2. **Migrate the real DB and start the server:**
    ```bash
-   npm run db:migrate
+   npm run db:migrate    # applies SQL migrations + chains db:migrate-secrets
    npm run dev
    ```
+
+   `db:migrate` now chains `db:migrate-secrets` automatically — it
+   encrypts existing plaintext `JIRA_API_TOKEN`/`GITHUB_TOKEN` settings
+   in place and bootstraps env-var values into the settings table.
+   Idempotent: safe to re-run.
+
+   Optionally set `TOKEN_ENCRYPTION_KEY` (`openssl rand -base64 32`)
+   in your env before this step if you want the at-rest key decoupled
+   from `AUTH_SECRET` (recommended for production — see
+   [`docs/SECURITY.md`](SECURITY.md)).
 
 3. **Grab the setup URL from stdout.** Look for a boxed banner:
    ```
@@ -90,8 +100,15 @@ Set up ONCE per install in Google Cloud Console:
    - [ ] `/admin/ops` shows `0 active runs` on a fresh DB
    - [ ] `/dashboard` renders 4 tiles — ops/cost/throughput/activity
          (all zeroes on a fresh install, no empty-state crash)
-   - [ ] `/profile` renders three sections — identity (with your
-         Google name pre-filled), agent defaults, notification prefs
+   - [ ] `/profile` renders four sections — identity, agent defaults,
+         notification prefs, **and Connections** (Jira / GitHub PAT /
+         Git author identity cards). Each card starts in "instance
+         default" state on a fresh install.
+   - [ ] `/admin/users` lists all users with per-service "instance
+         default" chips (no per-user overrides until users configure
+         them on `/profile`).
+   - [ ] `/admin/ops` header shows an "Instance fallback (7d)" Stat —
+         starts at `0` (or higher once you've run a task or two).
    - [ ] Sidebar is visible on `/dashboard`, `/profile`, `/admin/*`
          but NOT on `/`, `/team`, `/cards/:id`
    - [ ] Hit the setup URL a second time — should redirect to
@@ -110,6 +127,16 @@ Set up ONCE per install in Google Cloud Console:
 - **Jira test fails with `Unauthorized`** — API tokens are tied to
   the email address they were generated under. Confirm the email +
   token were generated in the same Atlassian account.
+- **`/admin/ops` shows "Instance fallback (7d): —"** — the 0003
+  migration didn't run. Re-run `npm run db:migrate`. The dash will
+  flip to a real number on next refresh.
+- **Boot warning: `WARNING: plaintext secrets detected in settings`** —
+  someone seeded a plaintext token directly. Run
+  `npm run db:migrate-secrets` to encrypt in place. Idempotent.
+- **Run fails with `killed_reason='credentials_invalid:jira'`** — the
+  task owner's Jira token is invalid (or the instance default if
+  they haven't set one). They re-enter on `/profile`. See
+  [`docs/runbooks/per-user-tokens.md`](runbooks/per-user-tokens.md).
 
 ## Post-install monitoring
 

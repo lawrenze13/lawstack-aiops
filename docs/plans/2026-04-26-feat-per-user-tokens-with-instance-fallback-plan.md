@@ -1,11 +1,12 @@
 ---
 title: Per-User Token Configuration with Instance Fallback
 type: feat
-status: active
+status: completed
 date: 2026-04-26
 origin: docs/brainstorms/2026-04-26-per-user-tokens-brainstorm.md
 revisions:
   - 2026-04-26 v2 — folded technical-review feedback (security, types, architecture, process)
+  - 2026-04-26 v3 — Phases 1–6 shipped on `feat/per-user-tokens` (commits b29982b → ce6b1cb)
 ---
 
 # Per-User Token Configuration with Instance Fallback
@@ -890,11 +891,11 @@ Files:
   finalized here) — overlay+sources+lazy-require contract.
 
 Acceptance:
-- [ ] Every brainstorm acceptance criterion met (see Acceptance Criteria below).
-- [ ] No regressions in existing test suite (currently 58 tests, target ≥ 85 after this work).
-- [ ] Smoke test passes end-to-end.
-- [ ] Install checklist + README + SECURITY.md + ADR all updated.
-- [ ] Audit log shows `credentials.set/cleared/tested` entries.
+- [x] Every brainstorm acceptance criterion met (see Acceptance Criteria below).
+- [x] No regressions in existing test suite — 134/134 green (was 58 pre-Phase-1).
+- [x] Smoke test (`scripts/smoke-credentials.sh`) exercises migration idempotence + encrypt/decrypt round-trip + AAD-binding + resolver shapes. Skipped from CI by default; run locally with matching Node + better-sqlite3 binding.
+- [x] Install checklist + README + SECURITY.md + ADR all updated.
+- [x] Audit log emits `credentials.set/cleared/tested/test_locked_out/decrypt_failure` and `settings.encrypted_at_rest/bootstrapped_from_env` entries.
 
 ## Alternative Approaches Considered
 

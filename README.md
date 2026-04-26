@@ -161,9 +161,14 @@ knob (Google OAuth, Jira, paths, agents, preview, CI) into the
 - **`/`** — My Tasks swimlane board (ticket → branch → … → done)
 - **`/team`** — Team board (everyone's tasks)
 - **`/dashboard`** — Ops health, cost meter, throughput, activity feed
-- **`/profile`** — Your identity, per-user agent defaults, notifications
+- **`/profile`** — Your identity, per-user agent defaults, notifications,
+  **and per-user Connections** (Jira creds, GitHub PAT, git author identity —
+  see [`docs/runbooks/per-user-tokens.md`](docs/runbooks/per-user-tokens.md))
 - **`/admin/settings`** — Instance-wide config (admin-only)
-- **`/admin/ops`** — Ops console (admin-only)
+- **`/admin/ops`** — Ops console (admin-only) — includes "Instance fallback (7d)"
+  metric for tracking who's relying on the box's god-token
+- **`/admin/users`** — Admin-only user-credential overview with per-service
+  "configured / instance default" chips and clear-on-behalf actions
 
 ## Setup
 
@@ -189,7 +194,13 @@ Minimum bootstrap env (set these before first boot if you want them to
 seed into the wizard as defaults):
 
 - `AUTH_SECRET` (`openssl rand -hex 32`) — required for JWT signing
+  AND used as the IKM for at-rest token encryption (see below).
 - `DATABASE_URL` (default `./data/app.db`)
+- `TOKEN_ENCRYPTION_KEY` (optional, `openssl rand -base64 32`) —
+  separate 32-byte key for at-rest credential encryption. If unset,
+  the key is HKDF-derived from `AUTH_SECRET`. Set this explicitly if
+  you ever want to rotate `AUTH_SECRET` without invalidating every
+  encrypted blob. See [`docs/SECURITY.md`](docs/SECURITY.md).
 
 Everything else is configurable through the UI without a restart.
 

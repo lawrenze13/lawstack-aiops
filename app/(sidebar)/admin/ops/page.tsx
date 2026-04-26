@@ -108,18 +108,34 @@ export default async function AdminOpsPage() {
   // per-user-tokens plan: when token_source='instance', the run used
   // the box's god-token instead of a user override. Shrinking number
   // = healthier identity hygiene.
+  //
+  // Wrapped in try/catch so a stale schema (missing the 0003 migration
+  // columns) degrades gracefully — the page renders with `—` instead
+  // of throwing a "no such column" runtime error.
   const since7d = new Date(now - 7 * DAY_MS);
-  const instanceFallbackRow = db
-    .select({ count: sql<number>`count(*)` })
-    .from(runs)
-    .where(
-      and(
-        gte(runs.startedAt, since7d),
-        sql`(${runs.jiraTokenSource} = 'instance' OR ${runs.githubTokenSource} = 'instance')`,
-      ),
-    )
-    .get();
-  const instanceFallbackCount = Number(instanceFallbackRow?.count ?? 0);
+  let instanceFallbackCount: number | null = 0;
+  try {
+    const row = db
+      .select({ count: sql<number>`count(*)` })
+      .from(runs)
+      .where(
+        and(
+          gte(runs.startedAt, since7d),
+          sql`(${runs.jiraTokenSource} = 'instance' OR ${runs.githubTokenSource} = 'instance')`,
+        ),
+      )
+      .get();
+    instanceFallbackCount = Number(row?.count ?? 0);
+  } catch (err) {
+    // Almost always: missing 0003 migration. Surface as `—` so the page
+    // still renders; admin can run `npm run db:migrate` and refresh.
+    // eslint-disable-next-line no-console
+    console.warn(
+      "[admin/ops] instance-fallback query failed; run `npm run db:migrate-secrets` if you see 'no such column: runs.*_token_source':",
+      (err as Error).message,
+    );
+    instanceFallbackCount = null;
+  }
 
   // Cost by day — last 30 days.
   const since30d = new Date(now - 30 * DAY_MS);
@@ -191,9 +207,23 @@ export default async function AdminOpsPage() {
             />
             <Stat
               label="Instance fallback (7d)"
-              value={String(instanceFallbackCount)}
-              tone={instanceFallbackCount > 0 ? "warn" : "ok"}
-              title="Runs that used the instance default for Jira or GitHub creds. Shrinking = better per-user adoption."
+              value={
+                instanceFallbackCount === null
+                  ? "—"
+                  : String(instanceFallbackCount)
+              }
+              tone={
+                instanceFallbackCount === null
+                  ? "warn"
+                  : instanceFallbackCount > 0
+                    ? "warn"
+                    : "ok"
+              }
+              title={
+                instanceFallbackCount === null
+                  ? "Migration 0003 not applied — run `npm run db:migrate`."
+                  : "Runs that used the instance default for Jira or GitHub creds. Shrinking = better per-user adoption."
+              }
             />
             <Stat
               label="Worktree disk"
