@@ -25,6 +25,15 @@ export type WorktreeInfo = {
   branch: string;
 };
 
+/** Per-worktree git author identity. Sourced from RunContext —
+ *  see server/worker/runContext.ts and server/integrations/credentials.ts.
+ *  When unset, ensureWorktree leaves the existing config alone (so the
+ *  box's `git config --global` value applies). */
+export type GitIdentity = {
+  name: string;
+  email: string;
+};
+
 /**
  * Idempotently provision a git worktree for a task. UUID-based path under
  * WORKTREE_ROOT so two tasks for the same Jira key never collide on disk.
@@ -34,7 +43,11 @@ export type WorktreeInfo = {
  * - throws Conflict if the remote branch already has an open PR for a
  *   different task (preflight gate from plan G10)
  */
-export async function ensureWorktree(taskId: string, jiraKey: string): Promise<WorktreeInfo> {
+export async function ensureWorktree(
+  taskId: string,
+  jiraKey: string,
+  gitIdentity?: GitIdentity,
+): Promise<WorktreeInfo> {
   if (!env.BASE_REPO) {
     throw new AppError("BASE_REPO is not set in env");
   }
@@ -55,6 +68,12 @@ export async function ensureWorktree(taskId: string, jiraKey: string): Promise<W
       .set({ lastUsedAt: new Date() })
       .where(eq(worktrees.path, existingRow.path))
       .run();
+    // Re-apply git identity on every reuse — cheap, idempotent, and
+    // keeps the worktree in sync if the operator updated their /profile
+    // identity since the last run.
+    if (gitIdentity) {
+      await applyGitIdentity(existingRow.path, gitIdentity);
+    }
     return { path: existingRow.path, branch: existingRow.branch };
   }
 
@@ -78,6 +97,14 @@ export async function ensureWorktree(taskId: string, jiraKey: string): Promise<W
     cwd: env.BASE_REPO,
   });
 
+  // Apply per-worktree git author identity BEFORE creating the
+  // standard-layout dirs so the very first commit (if any) carries
+  // the right author. `--local` scope means the config lives in
+  // wt.path/.git/config and never pollutes the box.
+  if (gitIdentity) {
+    await applyGitIdentity(wtPath, gitIdentity);
+  }
+
   // Standard layout — agents write to these paths.
   await mkdir(path.join(wtPath, "docs/brainstorms"), { recursive: true });
   await mkdir(path.join(wtPath, "docs/plans"), { recursive: true });
@@ -100,6 +127,34 @@ export async function ensureWorktree(taskId: string, jiraKey: string): Promise<W
     .run();
 
   return { path: wtPath, branch };
+}
+
+async function applyGitIdentity(
+  worktreePath: string,
+  identity: GitIdentity,
+): Promise<void> {
+  // `--local` writes to wt.path/.git/config — never touches the
+  // box-wide --global config. Failures are non-fatal: if `git config`
+  // can't write for some reason, commits will fall back to the box's
+  // global identity (which is the v1 fallback anyway).
+  try {
+    await exec(
+      "git",
+      ["config", "--local", "user.name", identity.name],
+      { cwd: worktreePath },
+    );
+    await exec(
+      "git",
+      ["config", "--local", "user.email", identity.email],
+      { cwd: worktreePath },
+    );
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[worktree] failed to set per-worktree git identity", {
+      worktreePath,
+      error: (err as Error).message,
+    });
+  }
 }
 
 /**

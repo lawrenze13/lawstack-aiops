@@ -15,14 +15,8 @@ import {
 import { syncAgentRegistry } from "@/server/agents/sync";
 import { AppError, BadRequest, Conflict, NotFound } from "@/server/lib/errors";
 import { env } from "@/server/lib/env";
-import {
-  assignIssue,
-  getIssueAssignee,
-  getIssueComments,
-  getMyself,
-  transitionIssueToName,
-} from "@/server/jira/client";
 import { spawnAgent } from "./spawnAgent";
+import { makeRunContext, tokenSourcesForRun, type RunContext } from "./runContext";
 
 const exec = promisify(execFile);
 
@@ -119,9 +113,15 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
     }
   }
 
+  // Resolve per-task credentials ONCE at run start. Snapshotted into
+  // the RunContext so mid-run /profile edits don't affect this run's
+  // Jira/GitHub identity. ownerId is NOT NULL on tasks — see
+  // server/db/schema.ts:82-84.
+  const ctx = makeRunContext(task.ownerId);
+
   let worktree;
   try {
-    worktree = await ensureWorktree(task.id, task.jiraKey);
+    worktree = await ensureWorktree(task.id, task.jiraKey, ctx.creds.git.value);
   } catch (err) {
     if (err instanceof Conflict) throw err;
     throw new AppError(`failed to provision worktree: ${(err as Error).message}`);
@@ -147,7 +147,9 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
   // Comments live where bug reproducers + clarifying questions end up,
   // so feeding them to brainstorm/plan/review is high-leverage.
   // Returns [] on missing creds / network failure — non-fatal.
-  const jiraComments = await getIssueComments(task.jiraKey);
+  const jiraComments = ctx.jiraClient
+    ? await ctx.jiraClient.getIssueComments(task.jiraKey).catch(() => [])
+    : [];
 
   // Prior-review count for Review prompt iteration awareness. Counting
   // artifact rows (not runs) gives the number of complete review passes
@@ -212,6 +214,7 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
     resumedFromRunId = parent[0]?.id ?? null;
   }
 
+  const tokenSources = tokenSourcesForRun(ctx);
   db.insert(runs)
     .values({
       id: runId,
@@ -224,6 +227,8 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
       startedAt: now,
       lastHeartbeatAt: now,
       resumedFromRunId,
+      jiraTokenSource: tokenSources.jiraTokenSource,
+      githubTokenSource: tokenSources.githubTokenSource,
     })
     .run();
 
@@ -243,6 +248,8 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
       resume: !!params.resumeSessionId,
       initiator: params.initiator.kind,
       amendFromReview: params.amendFromReview ?? false,
+      jiraTokenSource: tokenSources.jiraTokenSource,
+      githubTokenSource: tokenSources.githubTokenSource,
     },
   });
 
@@ -251,7 +258,7 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
   // Skipped for auto_advance (already transitioned on the first lane) and
   // for resumes. Silent on failure — a missing transition in the workflow
   // isn't a reason to block the run.
-  void maybeTransitionJiraOnFirstRun(task.id, task.jiraKey, params.initiator.kind);
+  void maybeTransitionJiraOnFirstRun(ctx, task.id, task.jiraKey, params.initiator.kind);
 
   spawnAgent({
     runId,
@@ -265,18 +272,31 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
     costWarnUsd: agent.costWarnUsd,
     costKillUsd: agent.costKillUsd,
     permissionMode: agent.permissionMode,
+    jiraCreds:
+      ctx.creds.jira.source === "missing"
+        ? undefined
+        : {
+            baseUrl: ctx.creds.jira.value.baseUrl,
+            email: ctx.creds.jira.value.email,
+            apiToken: String(ctx.creds.jira.value.apiToken),
+          },
+    githubToken:
+      ctx.creds.github.source === "missing"
+        ? undefined
+        : String(ctx.creds.github.value.token),
   });
 
   return { runId, lane: params.lane, agentId: agent.id };
 }
 
 async function maybeTransitionJiraOnFirstRun(
+  ctx: RunContext,
   taskId: string,
   jiraKey: string,
   initiator: "user" | "auto_advance" | "system",
 ): Promise<void> {
   if (initiator !== "user") return;
-  if (!env.JIRA_BASE_URL || !env.JIRA_API_TOKEN) return;
+  if (!ctx.jiraClient) return; // No creds — quiet skip.
 
   try {
     // Dedupe: if we already transitioned this task once, don't try again.
@@ -296,10 +316,10 @@ async function maybeTransitionJiraOnFirstRun(
     // can proceed. Don't touch already-assigned issues — those are
     // someone else's to own.
     try {
-      const current = await getIssueAssignee(jiraKey);
+      const current = await ctx.jiraClient.getIssueAssignee(jiraKey);
       if (!current) {
-        const me = await getMyself();
-        await assignIssue(jiraKey, me.accountId);
+        const me = await ctx.jiraClient.getMyself();
+        await ctx.jiraClient.assignIssue(jiraKey, me.accountId);
         audit({
           action: "jira.auto_assigned",
           taskId,
@@ -316,7 +336,7 @@ async function maybeTransitionJiraOnFirstRun(
     }
 
     const target = env.JIRA_START_STATUS;
-    const match = await transitionIssueToName(jiraKey, target);
+    const match = await ctx.jiraClient.transitionIssueToName(jiraKey, target);
     if (match) {
       audit({
         action: "jira.transitioned",

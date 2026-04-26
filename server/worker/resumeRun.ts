@@ -7,6 +7,7 @@ import { getAgent } from "@/server/agents/registry";
 import { AppError, BadRequest, Conflict, NotFound } from "@/server/lib/errors";
 import { runRegistry } from "./runRegistry";
 import { spawnAgent } from "./spawnAgent";
+import { makeRunContext } from "./runContext";
 
 export type ResumeRunParams = {
   /** The existing run row to resume — chat turns stack on this same row. */
@@ -57,7 +58,8 @@ export async function resumeRun(
   const agent = getAgent(run.agentId);
   if (!agent) throw new BadRequest(`unknown agent: ${run.agentId}`);
 
-  const worktree = await ensureWorktree(task.id, task.jiraKey);
+  const ctx = makeRunContext(task.ownerId);
+  const worktree = await ensureWorktree(task.id, task.jiraKey, ctx.creds.git.value);
 
   // Flip back to running on the SAME row. Preserve startedAt and the
   // accumulated costUsdMicros — the meter will continue from there.
@@ -100,6 +102,18 @@ export async function resumeRun(
     costKillUsd: agent.costKillUsd,
     permissionMode: agent.permissionMode,
     initialCumulativeCostUsd: carriedCostUsd,
+    jiraCreds:
+      ctx.creds.jira.source === "missing"
+        ? undefined
+        : {
+            baseUrl: ctx.creds.jira.value.baseUrl,
+            email: ctx.creds.jira.value.email,
+            apiToken: String(ctx.creds.jira.value.apiToken),
+          },
+    githubToken:
+      ctx.creds.github.source === "missing"
+        ? undefined
+        : String(ctx.creds.github.value.token),
   });
 
   return { runId: params.runId };

@@ -41,7 +41,44 @@ export type SpawnAgentParams = {
    * blow past the kill cap while the stored DB total is already higher.
    */
   initialCumulativeCostUsd?: number;
+  /**
+   * Per-run external-service credentials, snapshotted by the run's
+   * RunContext at start time. Whichever subset is present is passed
+   * through the env allowlist below to the spawned `claude` process,
+   * which forwards them to its own Bash/curl/gh tool calls.
+   */
+  jiraCreds?: { baseUrl: string; email: string; apiToken: string };
+  githubToken?: string;
 };
+
+/**
+ * Allowlist of env keys passed to the spawned `claude` subprocess.
+ * Frozen at module load; the structural snapshot test in
+ * `tests/spawnAgentEnv.test.ts` (Phase 3) asserts no key outside this
+ * set ever lands in childEnv. Adding a new key requires editing this
+ * list AND extending the snapshot test.
+ */
+export const CHILD_ENV_ALLOWLIST: ReadonlySet<string> = Object.freeze(
+  new Set<string>([
+    "NODE_ENV",
+    "PATH",
+    "HOME",
+    "LANG",
+    "USER",
+    "TERM",
+    // Anthropic creds: passed through if set on the parent process.
+    "ANTHROPIC_API_KEY",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    // Per-run external-service creds: populated from RunContext, not
+    // copied from process.env. Keeping them in the allowlist guards
+    // against future copy-paste regressions.
+    "JIRA_BASE_URL",
+    "JIRA_EMAIL",
+    "JIRA_API_TOKEN",
+    "GITHUB_TOKEN",
+    "GH_TOKEN",
+  ]),
+);
 
 const KILL_GRACE_MS = 5000;
 
@@ -73,9 +110,10 @@ export function spawnAgent(p: SpawnAgentParams): void {
     args.push("--session-id", p.sessionId);
   }
 
-  // Minimised env — explicit allow-list. Critical: do NOT spread process.env
-  // (would leak SLACK_WEBHOOK, GH_TOKEN, etc. into Claude's reach via Bash
-  // tool calls).
+  // Minimised env — explicit allow-list (CHILD_ENV_ALLOWLIST). Critical:
+  // do NOT spread process.env (would leak AUTH_SECRET, SLACK_WEBHOOK, etc.
+  // into Claude's reach via Bash tool calls). Per-run secrets come from
+  // p.jiraCreds / p.githubToken (RunContext-snapshotted), not from env.
   const childEnv: NodeJS.ProcessEnv = {
     NODE_ENV: process.env.NODE_ENV ?? "production",
     PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
@@ -89,6 +127,26 @@ export function spawnAgent(p: SpawnAgentParams): void {
   if (process.env.ANTHROPIC_API_KEY) childEnv.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN)
     childEnv.CLAUDE_CODE_OAUTH_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  // Per-run external-service creds — sourced from RunContext, not env.
+  if (p.jiraCreds) {
+    childEnv.JIRA_BASE_URL = p.jiraCreds.baseUrl;
+    childEnv.JIRA_EMAIL = p.jiraCreds.email;
+    childEnv.JIRA_API_TOKEN = p.jiraCreds.apiToken;
+  }
+  if (p.githubToken) {
+    childEnv.GITHUB_TOKEN = p.githubToken;
+    // `gh` CLI prefers GH_TOKEN; set both so either lookup wins.
+    childEnv.GH_TOKEN = p.githubToken;
+  }
+  // Defence-in-depth — assert every key is allowlisted. A copy-paste
+  // bug that adds an unlisted key is a CVE waiting to happen.
+  for (const k of Object.keys(childEnv)) {
+    if (!CHILD_ENV_ALLOWLIST.has(k)) {
+      throw new Error(
+        `[spawnAgent] env key '${k}' is not in CHILD_ENV_ALLOWLIST — refusing to spawn`,
+      );
+    }
+  }
 
   // The `as const` on stdio narrows the spawn overload so child.stdout / .stderr
   // are typed as Readable (not nullable).

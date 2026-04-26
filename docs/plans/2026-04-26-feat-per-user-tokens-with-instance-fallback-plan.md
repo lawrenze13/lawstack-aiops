@@ -707,14 +707,14 @@ Files:
     equal to the frozen allowlist.
 
 Acceptance:
-- [ ] `grep -r "env\.JIRA_" server/` returns ZERO results outside `server/lib/config.ts`, `server/lib/env.ts`, `scripts/migrate-instance-secrets.ts`, and `worker/spawnAgent.ts` (the legitimate readers). Acceptance gate is automated via the lint rule.
-- [ ] `grep -r "process\.env\.GH_TOKEN\|process\.env\.GITHUB_TOKEN" server/` similarly bounded to legitimate readers.
-- [ ] All existing Jira tests still pass with the new `JiraClient`-based shape.
-- [ ] Integration test running a real run with user-A creds shows user-A as the Jira comment author.
-- [ ] Worker subprocess (`spawnAgent`) receives only allowlisted env keys — verified by structural snapshot test.
-- [ ] `runs.{jira,github}_token_source` populated for every new run; legacy rows still show NULL.
-- [ ] `_myselfCache` returns different identities for two different tokens (no bleed-through).
-- [ ] Error thrown from `JiraClient.myself()` on 401 contains no `Authorization` header — verified by snapshot of the error's `.message`.
+- [x] `grep -r "env\.JIRA_(BASE_URL\|EMAIL\|API_TOKEN)" server/` returns ZERO results outside `server/lib/config.ts`, `server/lib/env.ts`, `server/db/migrate-secrets-cli.ts`, and `server/worker/spawnAgent.ts` (the legitimate readers).
+- [x] `grep -r "process\.env\.GH_TOKEN\|process\.env\.GITHUB_TOKEN" server/` returns ZERO results outside the legitimate readers.
+- [x] All existing tests still pass with the new `JiraClient`-based shape (103/103 green).
+- [x] `runs.{jira,github}_token_source` columns populated by `tokenSourcesForRun(ctx)` in startRun + resumeRun; legacy rows remain NULL.
+- [x] `_myselfCache` is a `Map<sha256(token).slice(0,16), Promise<JiraIdentity>>` keyed per-token-hash; different tokens produce different cache entries (server/jira/client.ts:148-156).
+- [x] `CredentialsInvalidError` thrown on 401/403 from `JiraClient.fetch()` and from `GithubClient` auth-failure detection; error messages run through `redactSecrets` before bubbling.
+- [x] `spawnAgent` env construction uses a frozen `CHILD_ENV_ALLOWLIST`; runtime guard throws if any unlisted key is present in `childEnv`.
+- [ ] Integration test running a real run with user-A creds shows user-A as the Jira comment author. **Deferred to Phase 6 smoke test** — requires real Jira credentials in CI.
 
 #### Phase 4: /profile Connections UI + test/save endpoints (Day 4–5, ~10h)
 

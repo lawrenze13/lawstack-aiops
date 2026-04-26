@@ -5,12 +5,9 @@ import { db } from "@/server/db/client";
 import { artifacts, auditLog, prRecords, tasks, worktrees } from "@/server/db/schema";
 import { audit } from "@/server/auth/audit";
 import { env } from "@/server/lib/env";
-import {
-  postComment,
-  transitionIssueToName,
-} from "@/server/jira/client";
 import { implementCommentDoc } from "@/server/jira/adf";
 import { robustPush } from "@/server/git/push";
+import { makeRunContext } from "@/server/worker/runContext";
 
 const exec = promisify(execFile);
 
@@ -54,6 +51,8 @@ export async function implementComplete(
   if (!task) {
     return { ok: false, failedAt: "safety_push", error: "task not found" };
   }
+  // Per-task creds drive Jira identity for the comment + transition.
+  const ctx = makeRunContext(task.ownerId);
   const wt = db.select().from(worktrees).where(eq(worktrees.taskId, taskId)).limit(1).get();
   if (!wt || wt.status !== "live") {
     // No worktree — nothing to push. Skip to Jira steps with empty commits.
@@ -92,9 +91,9 @@ export async function implementComplete(
           "git",
           [
             "-c",
-            "user.email=ai-ops@multiportal.io",
+            `user.email=${ctx.creds.git.value.email}`,
             "-c",
-            "user.name=lawstack-aiops",
+            `user.name=${ctx.creds.git.value.name}`,
             "commit",
             "-m",
             message,
@@ -170,8 +169,8 @@ export async function implementComplete(
   const priorCommentPosted = hasPriorAudit(taskId, "jira.implement_comment_posted");
   if (priorCommentPosted) {
     warnings.push("implementation comment already posted; skipping");
-  } else if (!env.JIRA_BASE_URL) {
-    warnings.push("JIRA_BASE_URL not configured; skipping comment");
+  } else if (!ctx.jiraClient) {
+    warnings.push("Jira credentials not configured; skipping comment");
   } else {
     try {
       const implementationMarkdown = await getImplementationMarkdown(taskId);
@@ -182,7 +181,7 @@ export async function implementComplete(
         commits,
         implementationMarkdown,
       });
-      jiraCommentId = await postComment(task.jiraKey, body);
+      jiraCommentId = await ctx.jiraClient.postComment(task.jiraKey, body);
       audit({
         action: "jira.implement_comment_posted",
         taskId,
@@ -203,9 +202,12 @@ export async function implementComplete(
   let transitioned = false;
   if (priorTransitioned) {
     warnings.push("already transitioned to review status; skipping");
-  } else if (env.JIRA_BASE_URL && env.JIRA_API_TOKEN) {
+  } else if (ctx.jiraClient) {
     try {
-      const match = await transitionIssueToName(task.jiraKey, env.JIRA_REVIEW_STATUS);
+      const match = await ctx.jiraClient.transitionIssueToName(
+        task.jiraKey,
+        env.JIRA_REVIEW_STATUS,
+      );
       if (match) {
         transitioned = true;
         audit({

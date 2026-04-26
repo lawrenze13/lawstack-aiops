@@ -2,7 +2,7 @@ import { eq, and } from "drizzle-orm";
 import { db } from "@/server/db/client";
 import { artifacts, auditLog, tasks } from "@/server/db/schema";
 import { audit } from "@/server/auth/audit";
-import { postComment } from "./client";
+import { makeRunContext } from "@/server/worker/runContext";
 import {
   doc,
   heading,
@@ -14,7 +14,6 @@ import {
   bulletList,
   extractSummary,
 } from "./adf";
-import { env } from "@/server/lib/env";
 
 /**
  * Post a Jira comment summarising a Plan amendment triggered by a prior
@@ -24,10 +23,12 @@ import { env } from "@/server/lib/env";
  * Best-effort — logs a warning + audit row on failure but doesn't throw.
  */
 export async function postAmendmentComment(runId: string, taskId: string): Promise<void> {
-  if (!env.JIRA_BASE_URL || !env.JIRA_API_TOKEN) return;
-
   const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
   if (!task) return;
+
+  // Per-task creds drive Jira identity for this comment.
+  const ctx = makeRunContext(task.ownerId);
+  if (!ctx.jiraClient) return;
 
   // Latest Plan + last Review that preceded this amend (the one whose
   // findings drove the amendment). We want the Review that was around
@@ -91,7 +92,7 @@ export async function postAmendmentComment(runId: string, taskId: string): Promi
   ]);
 
   try {
-    const commentId = await postComment(task.jiraKey, body);
+    const commentId = await ctx.jiraClient.postComment(task.jiraKey, body);
     audit({
       action: "jira.amend_comment_posted",
       taskId,

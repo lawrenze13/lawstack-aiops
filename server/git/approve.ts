@@ -7,10 +7,10 @@ import { db } from "@/server/db/client";
 import { artifacts, prRecords, tasks, worktrees } from "@/server/db/schema";
 import { env } from "@/server/lib/env";
 import { audit } from "@/server/auth/audit";
-import { postComment } from "@/server/jira/client";
 import { robustPush } from "@/server/git/push";
 import { prCommentDoc } from "@/server/jira/adf";
 import { AppError, BadRequest, Conflict, NotFound } from "@/server/lib/errors";
+import { makeRunContext } from "@/server/worker/runContext";
 
 const exec = promisify(execFile);
 
@@ -54,6 +54,12 @@ export async function approveAndPr(
   const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
   if (!task) throw new NotFound("task not found");
   if (task.status === "archived") throw new Conflict("task is archived");
+
+  // Build the per-task RunContext. Token-source resolution is driven
+  // by task.ownerId, NOT actorUserId — admin clicking Approve on
+  // someone else's task still uses the task creator's tokens. Per the
+  // per-user-tokens plan, "task creator owns the task forever."
+  const ctx = makeRunContext(task.ownerId);
 
   const wt = db.select().from(worktrees).where(eq(worktrees.taskId, taskId)).limit(1).get();
   if (!wt || wt.status !== "live") {
@@ -143,13 +149,17 @@ export async function approveAndPr(
         commitSha = stdout.trim();
       } else {
         const msg = `docs(${task.jiraKey}): AI brainstorm + plan\n\n${task.title}`;
+        // Author identity comes from the RunContext — set as
+        // `--local` config inside the worktree by ensureWorktree, but
+        // we also pass via -c here as belt-and-braces in case the
+        // worktree was provisioned before per-user identity landed.
         await exec(
           "git",
           [
             "-c",
-            "user.email=ai-ops@multiportal.io",
+            `user.email=${ctx.creds.git.value.email}`,
             "-c",
-            "user.name=lawstack-aiops",
+            `user.name=${ctx.creds.git.value.name}`,
             "commit",
             "-m",
             msg,
@@ -197,7 +207,7 @@ export async function approveAndPr(
       const { stdout: existingJson } = await exec(
         "gh",
         ["pr", "list", "--head", branch, "--state", "open", "--json", "url,number"],
-        { cwd: wt.path, env: ghEnv() },
+        { cwd: wt.path, env: ctx.githubClient ? ctx.githubClient.ghEnv() : ghEnvFallback() },
       );
       const existingPrs = JSON.parse(existingJson || "[]") as Array<{
         url: string;
@@ -223,7 +233,7 @@ export async function approveAndPr(
             "--body",
             body,
           ],
-          { cwd: wt.path, env: ghEnv() },
+          { cwd: wt.path, env: ctx.githubClient ? ctx.githubClient.ghEnv() : ghEnvFallback() },
         );
         prUrl = stdout.trim().split("\n").pop() ?? "";
       }
@@ -272,7 +282,10 @@ export async function approveAndPr(
           title: task.title,
           artifacts: artifactsForComment,
         });
-        jiraCommentId = await postComment(task.jiraKey, body);
+        if (!ctx.jiraClient) {
+          throw new Error("Jira credentials not configured for this task");
+        }
+        jiraCommentId = await ctx.jiraClient.postComment(task.jiraKey, body);
         db.update(prRecords)
           .set({ state: "jira_notified", jiraCommentId, updatedAt: new Date() })
           .where(eq(prRecords.taskId, taskId))
@@ -384,15 +397,19 @@ function buildPrBody(
   return lines.join("\n");
 }
 
-function ghEnv(): NodeJS.ProcessEnv {
-  const baseline: NodeJS.ProcessEnv = {
+/**
+ * Fallback env when neither user nor instance has a GitHub token
+ * configured. The `gh` CLI may still authenticate via `gh auth login`-
+ * stored credentials (~/.config/gh/hosts.yml), so we return a minimal
+ * env without any token. If `gh` was never logged in either, the call
+ * fails with a typed CredentialsInvalidError from GithubClient.
+ */
+function ghEnvFallback(): NodeJS.ProcessEnv {
+  return {
     NODE_ENV: process.env.NODE_ENV ?? "production",
     PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
     HOME: process.env.HOME ?? "/tmp",
   };
-  if (process.env.GH_TOKEN) baseline.GH_TOKEN = process.env.GH_TOKEN;
-  if (process.env.GITHUB_TOKEN) baseline.GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-  return baseline;
 }
 
 function stepIsPending(current: ApproveStep, target: ApproveStep): boolean {
