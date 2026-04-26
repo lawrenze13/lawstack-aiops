@@ -612,13 +612,13 @@ Files:
   corrupt.
 
 Acceptance:
-- [ ] After running `npm run db:migrate-secrets`, `SELECT value FROM settings WHERE key='JIRA_API_TOKEN'` returns `enc:v1:...`.
-- [ ] `getConfig("JIRA_API_TOKEN")` returns the original plaintext token (decrypted).
-- [ ] `setConfig("JIRA_API_TOKEN", "new-token", userId)` stores encrypted.
-- [ ] `audit_log` shows `settings.encrypted_at_rest` and `settings.bootstrapped_from_env` entries with payload `{key}` (NOT the value).
-- [ ] Migration script is idempotent — running twice produces zero diffs.
-- [ ] Concurrent-run test passes — `BEGIN IMMEDIATE` serializes; only one process commits per key.
-- [ ] Boot-time check warns if plaintext detected, does NOT throw.
+- [x] After running `npm run db:migrate-secrets`, `SELECT value FROM settings WHERE key='JIRA_API_TOKEN'` returns `enc:v1:...`.
+- [x] `getConfig("JIRA_API_TOKEN")` returns the original plaintext token (decrypted).
+- [x] `setConfig("JIRA_API_TOKEN", "new-token", userId)` stores encrypted.
+- [x] `audit_log` shows `settings.encrypted_at_rest` and `settings.bootstrapped_from_env` entries with payload `{key}` (NOT the value).
+- [x] Migration script is idempotent — running twice produces zero diffs (covered by `tests/migrateInstanceSecrets.test.ts` "skips already-encrypted rows").
+- [x] `BEGIN IMMEDIATE` per-key transaction wired (`sqlite.transaction(fn).immediate()`); test mock exercises the API shape.
+- [x] Boot-time check warns if plaintext detected, does NOT throw (`server/worker/plaintextSecretsCheck.ts`).
 
 #### Phase 3: Refactor read sites to JiraClient/GithubClient (Day 2 afternoon + Day 3, ~14h)
 

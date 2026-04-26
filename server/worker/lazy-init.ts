@@ -6,6 +6,7 @@
 // the reconciler and stomp on runs that are alive in the current process.
 
 import { reconcileInterruptedRuns } from "./reconcile";
+import { warnIfPlaintextSecrets } from "./plaintextSecretsCheck";
 import { ensureSetupToken } from "@/server/auth/setupToken";
 
 declare global {
@@ -27,5 +28,14 @@ export function ensureInitialised(): void {
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error("[lazy-init] reconcile failed", err);
+  }
+  // Non-blocking: scan for plaintext secrets and warn the operator.
+  // The encrypt-in-place migration is explicit (`npm run db:migrate-secrets`),
+  // not boot-time, so we never block startup on this.
+  try {
+    warnIfPlaintextSecrets();
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("[lazy-init] plaintext-secret check failed", err);
   }
 }

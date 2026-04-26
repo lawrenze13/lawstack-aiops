@@ -7,6 +7,13 @@ import { z } from "zod";
 import { db } from "@/server/db/client";
 import { settings } from "@/server/db/schema";
 import { audit } from "@/server/auth/audit";
+import {
+  asPlaintext,
+  decrypt,
+  encrypt,
+  isCiphertext,
+  type Ciphertext,
+} from "@/server/lib/encryption";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Runtime config resolver. Every consumer reads through `getConfig(key)`
@@ -88,6 +95,23 @@ export const configSchema = z.object({
 export type ConfigSchema = z.infer<typeof configSchema>;
 export type ConfigKey = keyof ConfigSchema;
 
+/**
+ * Config keys whose values are encrypted at rest in the `settings`
+ * table. Read-side decrypts via {@link decrypt}; write-side encrypts
+ * via {@link encrypt}; AAD = {@link settingsAad}(key). Migration
+ * runner (`scripts/migrate-instance-secrets.ts`) backfills existing
+ * plaintext values into ciphertext on `npm run db:migrate`.
+ */
+export const KNOWN_SECRET_KEYS: ReadonlySet<ConfigKey> = new Set<ConfigKey>([
+  "JIRA_API_TOKEN",
+  "GITHUB_TOKEN",
+]);
+
+/** AAD bound into GCM auth tag for settings-row ciphertexts. */
+export function settingsAad(key: ConfigKey): string {
+  return `settings:v1:${key}`;
+}
+
 // Pre-compute zod defaults once. `parse({})` coerces empty input and
 // gives us back whatever the schema defaults resolve to.
 const DEFAULTS: Record<string, unknown> = configSchema.parse({});
@@ -145,7 +169,22 @@ function safeParseStoredValue<K extends ConfigKey>(
   raw: string,
 ): ConfigSchema[K] | undefined {
   try {
-    const json = JSON.parse(raw);
+    let json: unknown = JSON.parse(raw);
+    // Decrypt at-rest secret values back to plaintext for downstream
+    // zod validation + caller. A decryption failure here is a hard
+    // error case (corrupt blob, key rotation gap) — we return undefined
+    // to fall through to env / default rather than crashing the read.
+    if (
+      KNOWN_SECRET_KEYS.has(key) &&
+      typeof json === "string" &&
+      isCiphertext(json)
+    ) {
+      try {
+        json = String(decrypt(json as Ciphertext, settingsAad(key)));
+      } catch {
+        return undefined;
+      }
+    }
     const fieldSchema = configSchema.shape[key];
     const res = fieldSchema.safeParse(json);
     return res.success ? (res.data as ConfigSchema[K]) : undefined;
@@ -165,7 +204,9 @@ function safeParseEnvValue<K extends ConfigKey>(
 
 /**
  * Write a config value. Invalidates the cache entry so the next read
- * repopulates from DB.
+ * repopulates from DB. For keys in {@link KNOWN_SECRET_KEYS} the
+ * validated string is encrypted (AAD-bound to the key) before being
+ * persisted; reads decrypt symmetrically in {@link safeParseStoredValue}.
  */
 export function setConfig<K extends ConfigKey>(
   key: K,
@@ -179,7 +220,20 @@ export function setConfig<K extends ConfigKey>(
       `config validation failed for ${key}: ${validation.error.message}`,
     );
   }
-  const serialised = JSON.stringify(validation.data);
+  // Encrypt secret keys before persisting. The validated value is
+  // always a string for our secret keys (JIRA_API_TOKEN, GITHUB_TOKEN
+  // are `optionalStr(z.string().min(1))`), so the type narrowing is
+  // a runtime invariant.
+  let toStore: unknown = validation.data;
+  if (
+    KNOWN_SECRET_KEYS.has(key) &&
+    typeof toStore === "string" &&
+    toStore.length > 0 &&
+    !isCiphertext(toStore)
+  ) {
+    toStore = encrypt(asPlaintext(toStore), settingsAad(key));
+  }
+  const serialised = JSON.stringify(toStore);
   db.insert(settings)
     .values({ key, value: serialised, updatedBy: actorUserId })
     .onConflictDoUpdate({
