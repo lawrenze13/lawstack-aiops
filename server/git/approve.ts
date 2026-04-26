@@ -11,6 +11,11 @@ import { robustPush } from "@/server/git/push";
 import { prCommentDoc } from "@/server/jira/adf";
 import { AppError, BadRequest, Conflict, NotFound } from "@/server/lib/errors";
 import { makeRunContext } from "@/server/worker/runContext";
+import {
+  isCredentialsInvalid,
+  markRunCredentialsInvalid,
+} from "@/server/worker/credentialsFailure";
+import { redactSecrets } from "@/server/lib/redactSecrets";
 
 const exec = promisify(execFile);
 
@@ -292,10 +297,19 @@ export async function approveAndPr(
           .run();
         record.state = "jira_notified";
       } catch (err) {
-        // Jira-comment failure is non-fatal. Record the warning; user can
-        // post manually. State stays at 'pr_opened' so Retry re-tries only
-        // the Jira step.
-        jiraWarning = `Jira comment failed: ${(err as Error).message}`;
+        // Detect typed CredentialsInvalidError so owner gets a notification
+        // and /admin/ops surfaces a key-icon. The PR + commit + push are
+        // already done so the approve overall succeeds — Jira comment is
+        // bolt-on, not load-bearing.
+        if (isCredentialsInvalid(err)) {
+          markRunCredentialsInvalid({
+            runId: null,
+            taskId,
+            service: err.service,
+            err,
+          });
+        }
+        jiraWarning = `Jira comment failed: ${redactSecrets((err as Error).message)}`;
         audit({
           action: "approve.jira_warn",
           actorUserId,

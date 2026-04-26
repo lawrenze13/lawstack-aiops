@@ -845,14 +845,14 @@ Files:
   user notification appears.
 
 Acceptance:
-- [ ] Run fails with `killed_reason='credentials_invalid:jira'` when user's Jira token returns 401.
-- [ ] Failed run shows on /admin/ops with key-icon hint.
-- [ ] Owning user's notifications panel shows the failure (existing substrate).
-- [ ] /admin/users page exists, lists users, shows per-user chips.
-- [ ] Admin clicks Clear → user's block deleted, audit logged with `clearedBy=adminUserId`.
-- [ ] /admin/ops shows "N runs in 7d used instance fallback" widget — query is a single SQL statement using the flat columns.
-- [ ] No admin endpoint anywhere returns a decrypted token value.
-- [ ] Error message thrown from a 401 contains `<redacted>` instead of any auth header (verified by snapshot).
+- [x] Run fails with `killed_reason='credentials_invalid:jira'` when user's Jira token returns 401 — `markRunCredentialsInvalid` writes the typed reason; called from implementComplete.ts and approve.ts catch blocks.
+- [x] Failed run shows on /admin/ops with key-icon hint — `ReasonCell` renders 🔑 + amber styling for any `credentials_invalid:*` killed_reason.
+- [x] Owning user's notifications panel shows the failure — `run.failed` audit fires automatically; already on `NOTIFY_ACTIONS` (server/lib/notifications.ts:12-19).
+- [x] /admin/users page exists at `app/(sidebar)/admin/users/page.tsx`, lists users with per-service "configured" chips. Sidebar updated with Users link.
+- [x] Admin clicks Clear → DELETE `/api/profile/credentials/[service]?for=<userId>` clears the row; audit payload `{service, targetUserId, clearedBy: adminUserId}`.
+- [x] /admin/ops shows "Instance fallback (7d)" Stat widget — single SQL `WHERE jira_token_source='instance' OR github_token_source='instance'` against the flat columns.
+- [x] No admin endpoint returns a decrypted token value — UsersTokenStatus shows only boolean chips; never reads token plaintext.
+- [x] Error message from a 401 contains `<redacted>` — `markRunCredentialsInvalid` runs `redactSecrets` on `payload.detail`; verified by the credentialsFailure test that injects a `ghp_*` substring and asserts it's redacted.
 
 #### Phase 6: Polish, docs, smoke test (Day 7–8, ~6h)
 

@@ -9,6 +9,7 @@ import {
   IconOps,
   IconProfile,
   IconSettings,
+  IconUsers,
 } from "./SidebarIcons";
 
 type Props = {
@@ -77,6 +78,11 @@ export function Sidebar({ user }: Props) {
               href="/admin/ops"
               icon={<IconOps />}
               label="Ops"
+            />
+            <SidebarItem
+              href="/admin/users"
+              icon={<IconUsers />}
+              label="Users"
             />
           </SidebarSection>
         ) : null}

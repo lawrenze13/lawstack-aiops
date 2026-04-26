@@ -103,6 +103,24 @@ export default async function AdminOpsPage() {
     .orderBy(desc(runs.finishedAt))
     .all();
 
+  // Instance-fallback usage in last 7 days. Surfaces the
+  // privilege-escalation visibility metric documented in the
+  // per-user-tokens plan: when token_source='instance', the run used
+  // the box's god-token instead of a user override. Shrinking number
+  // = healthier identity hygiene.
+  const since7d = new Date(now - 7 * DAY_MS);
+  const instanceFallbackRow = db
+    .select({ count: sql<number>`count(*)` })
+    .from(runs)
+    .where(
+      and(
+        gte(runs.startedAt, since7d),
+        sql`(${runs.jiraTokenSource} = 'instance' OR ${runs.githubTokenSource} = 'instance')`,
+      ),
+    )
+    .get();
+  const instanceFallbackCount = Number(instanceFallbackRow?.count ?? 0);
+
   // Cost by day — last 30 days.
   const since30d = new Date(now - 30 * DAY_MS);
   const costByDay = db
@@ -172,6 +190,12 @@ export default async function AdminOpsPage() {
               value={`$${(totalCost30d / 1_000_000).toFixed(2)}`}
             />
             <Stat
+              label="Instance fallback (7d)"
+              value={String(instanceFallbackCount)}
+              tone={instanceFallbackCount > 0 ? "warn" : "ok"}
+              title="Runs that used the instance default for Jira or GitHub creds. Shrinking = better per-user adoption."
+            />
+            <Stat
               label="Worktree disk"
               value={worktreeUsage.total ?? "—"}
               title={worktreeUsage.error ?? undefined}
@@ -233,9 +257,7 @@ export default async function AdminOpsPage() {
                 </span>,
                 r.lane,
                 <StatusBadge key="s" status={r.status} />,
-                <span key="r" className="font-mono text-[10px]">
-                  {r.killedReason ?? "—"}
-                </span>,
+                <ReasonCell key="r" reason={r.killedReason} />,
                 `$${(r.costUsdMicros / 1_000_000).toFixed(4)}`,
                 r.finishedAt ? fmtAgo(r.finishedAt, now) : "—",
               ])}
@@ -396,6 +418,28 @@ function StatusBadge({ status }: { status: string }) {
       {status}
     </Chip>
   );
+}
+
+function ReasonCell({ reason }: { reason: string | null }) {
+  if (!reason) {
+    return <span className="font-mono text-[10px]">—</span>;
+  }
+  if (/^credentials_invalid:/.test(reason)) {
+    const service = reason.split(":")[1] ?? "?";
+    return (
+      <span
+        className="inline-flex items-center gap-1 font-mono text-[10px] text-amber-700"
+        title="Owner needs to update their credentials in /profile."
+      >
+        <span aria-hidden="true">🔑</span>
+        <span>{reason}</span>
+        <span className="ml-1 text-[9px] uppercase tracking-[0.12em] text-[color:var(--muted)]">
+          ({service})
+        </span>
+      </span>
+    );
+  }
+  return <span className="font-mono text-[10px]">{reason}</span>;
 }
 
 function fmtTime(d: Date | number | null | undefined): string {

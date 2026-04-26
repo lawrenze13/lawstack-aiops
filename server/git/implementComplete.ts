@@ -8,6 +8,12 @@ import { env } from "@/server/lib/env";
 import { implementCommentDoc } from "@/server/jira/adf";
 import { robustPush } from "@/server/git/push";
 import { makeRunContext } from "@/server/worker/runContext";
+import {
+  isCredentialsInvalid,
+  markRunCredentialsInvalid,
+  reasonFor,
+} from "@/server/worker/credentialsFailure";
+import { redactSecrets } from "@/server/lib/redactSecrets";
 
 const exec = promisify(execFile);
 
@@ -189,10 +195,25 @@ export async function implementComplete(
         payload: { commentId: jiraCommentId, commits: commits.length },
       });
     } catch (err) {
+      // Detect typed CredentialsInvalidError so /admin/ops shows a key
+      // icon and the owning user gets a notification via run.failed.
+      if (isCredentialsInvalid(err)) {
+        markRunCredentialsInvalid({
+          runId,
+          taskId,
+          service: err.service,
+          err,
+        });
+        return {
+          ok: false,
+          failedAt: "implementation_comment",
+          error: reasonFor(err.service),
+        };
+      }
       return {
         ok: false,
         failedAt: "implementation_comment",
-        error: `Jira comment failed: ${(err as Error).message}`,
+        error: `Jira comment failed: ${redactSecrets((err as Error).message)}`,
       };
     }
   }
@@ -232,14 +253,20 @@ export async function implementComplete(
         });
       }
     } catch (err) {
-      // Non-fatal: the PR + comment are the real handoff. Log a warning
-      // and keep going.
-      warnings.push(`Jira transition failed: ${(err as Error).message}`);
+      // Non-fatal for the transition step (the PR + comment are the
+      // real handoff). But still mark + audit credentials_invalid so
+      // the owner sees a notification — they need to update /profile.
+      if (isCredentialsInvalid(err)) {
+        markRunCredentialsInvalid({ runId, taskId, service: err.service, err });
+      }
+      warnings.push(
+        `Jira transition failed: ${redactSecrets((err as Error).message)}`,
+      );
       audit({
         action: "jira.code_review_transition_failed",
         taskId,
         runId,
-        payload: { error: (err as Error).message },
+        payload: { error: redactSecrets((err as Error).message) },
       });
     }
   }

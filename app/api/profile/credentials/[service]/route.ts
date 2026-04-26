@@ -83,13 +83,17 @@ export async function GET(req: NextRequest) {
 /**
  * DELETE /api/profile/credentials/[service]
  *
- * Clears the user's credentials block for `service`. Equivalent to the
- * "Use instance default" toggle in the UI. Audits credentials.cleared.
+ * Clears credentials block for `service`. Self by default; admins may
+ * pass `?for=<userId>` to clear another user's block (audited with
+ * `clearedBy=<adminId>`). Audits credentials.cleared.
  */
 export async function DELETE(req: NextRequest) {
   const session = await auth();
-  const userId = (session?.user as { id?: string } | undefined)?.id;
-  if (!userId) {
+  const session_user = session?.user as
+    | { id?: string; role?: string }
+    | undefined;
+  const actorUserId = session_user?.id;
+  if (!actorUserId) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
@@ -109,19 +113,37 @@ export async function DELETE(req: NextRequest) {
     );
   }
 
-  clearUserCredentialService(userId, service);
+  // Admin clear-on-behalf via ?for=<userId>. Non-admins ignored.
+  const url = new URL(req.url);
+  const forParam = url.searchParams.get("for");
+  let targetUserId = actorUserId;
+  let clearedByAdmin = false;
+  if (forParam && forParam !== actorUserId) {
+    if (session_user?.role !== "admin") {
+      return NextResponse.json(
+        { error: "forbidden", message: "admin only for ?for=" },
+        { status: 403 },
+      );
+    }
+    targetUserId = forParam;
+    clearedByAdmin = true;
+  }
+
+  clearUserCredentialService(targetUserId, service);
 
   audit({
     action: "credentials.cleared",
-    actorUserId: userId,
+    actorUserId,
     actorIp:
       req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
       req.headers.get("x-real-ip") ??
       null,
-    payload: { service },
+    payload: clearedByAdmin
+      ? { service, targetUserId, clearedBy: actorUserId }
+      : { service },
   });
 
-  return NextResponse.json({ cleared: true });
+  return NextResponse.json({ cleared: true, targetUserId });
 }
 
 function last4(s: string): string {
