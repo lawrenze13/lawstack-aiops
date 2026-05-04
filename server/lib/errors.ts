@@ -31,3 +31,17 @@ export class TooManyRequests extends AppError {
     if (opts?.retryAfterSec !== undefined) this.retryAfterSec = opts.retryAfterSec;
   }
 }
+
+/**
+ * Conflict variant for the preview-dev "dirty working tree" case. Carries
+ * a `dirtyCount` so the client modal can render "Discard N changes and
+ * switch?" without leaking file PATHS (those stay in the audit row only —
+ * see security review H3 for why).
+ */
+export class DirtyTreeConflict extends Conflict {
+  dirtyCount: number;
+  constructor(message: string, dirtyCount: number, opts?: { cause?: unknown }) {
+    super(message, opts);
+    this.dirtyCount = dirtyCount;
+  }
+}
