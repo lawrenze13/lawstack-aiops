@@ -11,6 +11,8 @@ import { ArchiveButton } from "@/components/card-detail/ArchiveButton";
 import { RunSidebar } from "@/components/card-detail/RunSidebar";
 import { ApproveButton } from "@/components/card-detail/ApproveButton";
 import { AmendPlanButton } from "@/components/card-detail/AmendPlanButton";
+import { FixFromQaButton } from "@/components/card-detail/FixFromQaButton";
+import { QaCycleChip } from "@/components/card-detail/QaCycleChip";
 import { ArtifactPanel } from "@/components/card-detail/ArtifactPanel";
 import { CardMainTabs } from "@/components/card-detail/CardMainTabs";
 import { DescriptionPanel } from "@/components/card-detail/DescriptionPanel";
@@ -21,7 +23,11 @@ import { readReviewState } from "@/server/git/reviewVerdict";
 import { PreviewDevButton } from "@/components/card-detail/PreviewDevButton";
 import { AGENTS, defaultAgentForLane } from "@/server/agents/registry";
 import { env } from "@/server/lib/env";
-import { currentCycleStartedAt, currentCycleNumber } from "@/server/lib/taskCycle";
+import {
+  currentCycleStartedAt,
+  currentCycleNumber,
+  qaFixCycleCount,
+} from "@/server/lib/taskCycle";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -266,6 +272,7 @@ export default async function CardDetailPage({ params }: Props) {
           <span className="rounded bg-[color:var(--surface-secondary)] px-2 py-1 font-medium">
             lane: {task.currentLane}
           </span>
+          <QaCycleChip count={qaFixCycleCount(task.id)} />
           {reviewVerdict && reviewVerdict !== "READY" ? (
             <AmendPlanButton
               taskId={task.id}
@@ -274,6 +281,12 @@ export default async function CardDetailPage({ params }: Props) {
               runActive={allRuns.some((r) => r.status === "running")}
             />
           ) : null}
+          <FixFromQaButton
+            taskId={task.id}
+            currentLane={task.currentLane}
+            canControl={canControl}
+            runActive={allRuns.some((r) => r.status === "running")}
+          />
           <ApproveButton
             taskId={task.id}
             prRecord={prRecordDTO}
