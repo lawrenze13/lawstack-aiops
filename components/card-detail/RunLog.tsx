@@ -239,6 +239,30 @@ export function RunLog({
   const [stopPending, startStop] = useTransition();
   const toast = useToast();
   const router = useRouter();
+
+  // Scope toggle — default to "current" so the operator sees only this
+  // run's events. Prior runs are still in `state.events` (seeded from
+  // threadEvents) so flipping to "full" reveals them without a re-fetch.
+  // SSR-safe: initial state is always "current" to match server render;
+  // useEffect reads localStorage on mount and updates if needed.
+  const [scopeMode, setScopeMode] = useState<"current" | "full">("current");
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem("runLog.scopeMode");
+      if (stored === "full" || stored === "current") setScopeMode(stored);
+    } catch {
+      // localStorage may be unavailable (private mode, etc.) — fall back
+      // to default. Not worth surfacing.
+    }
+  }, []);
+  const setScopeModePersisted = (next: "current" | "full") => {
+    setScopeMode(next);
+    try {
+      window.localStorage.setItem("runLog.scopeMode", next);
+    } catch {
+      // ignore
+    }
+  };
   // Toast dedupe: track which transitions we've already fired so reopening
   // the card doesn't re-toast historical events.
   const toastedRef = useRef<{
@@ -511,6 +535,22 @@ export function RunLog({
     [state.outputTokensByMessage],
   );
 
+  // Filtered events for the EventStream — defaults to current run only.
+  // The unique-runId count tells us whether the toggle is even meaningful
+  // (prior runs exist for this task).
+  const visibleEvents = useMemo(
+    () =>
+      scopeMode === "current"
+        ? state.events.filter((e) => e.runId === runId)
+        : state.events,
+    [scopeMode, state.events, runId],
+  );
+  const priorRunCount = useMemo(() => {
+    const ids = new Set<string>();
+    for (const e of state.events) ids.add(e.runId);
+    return Math.max(0, ids.size - 1);
+  }, [state.events]);
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b border-[color:var(--border)] px-3 py-2 text-xs">
@@ -592,15 +632,24 @@ export function RunLog({
         />
       ) : null}
 
+      {priorRunCount > 0 ? (
+        <ScopeToggle
+          mode={scopeMode}
+          onChange={setScopeModePersisted}
+          priorRunCount={priorRunCount}
+        />
+      ) : null}
+
       <div ref={scroller} className="flex-1 overflow-y-auto px-3 py-3 text-xs leading-relaxed">
-        {state.events.length === 0 ? (
+        {visibleEvents.length === 0 ? (
           <p className="text-[color:var(--muted)]">Waiting for events…</p>
         ) : (
           <EventStream
-            events={state.events}
+            events={visibleEvents}
             toolResults={state.toolResults}
             runs={runs}
             currentRunId={runId}
+            hideRunHeader={scopeMode === "current"}
           />
         )}
         {state.ended ? (
@@ -696,6 +745,47 @@ function formatTokens(n: number): string {
   return `${Math.round(n / 1000)}k`;
 }
 
+// ─── Scope toggle (current run / full thread) ─────────────────────────────
+
+function ScopeToggle({
+  mode,
+  onChange,
+  priorRunCount,
+}: {
+  mode: "current" | "full";
+  onChange: (next: "current" | "full") => void;
+  priorRunCount: number;
+}) {
+  const buttonCls = (active: boolean) =>
+    `rounded px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] ${
+      active
+        ? "bg-[color:var(--accent)]/15 text-[color:var(--accent)] border border-[color:var(--accent)]/40"
+        : "border border-transparent text-[color:var(--muted)] hover:text-[color:var(--foreground)]"
+    }`;
+  return (
+    <div className="flex items-center gap-2 border-b border-[color:var(--border)] bg-[color:var(--surface-secondary)]/20 px-3 py-1.5 text-[11px]">
+      <span className="text-[color:var(--muted)]">View</span>
+      <button
+        type="button"
+        onClick={() => onChange("current")}
+        className={buttonCls(mode === "current")}
+      >
+        This run
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("full")}
+        className={buttonCls(mode === "full")}
+      >
+        Full thread
+      </button>
+      <span className="ml-auto text-[10px] text-[color:var(--muted)]">
+        {priorRunCount} prior run{priorRunCount === 1 ? "" : "s"} on this task
+      </span>
+    </div>
+  );
+}
+
 // ─── Event stream renderer ─────────────────────────────────────────────────
 
 function EventStream({
@@ -703,11 +793,16 @@ function EventStream({
   toolResults,
   runs,
   currentRunId,
+  hideRunHeader = false,
 }: {
   events: EventRow[];
   toolResults: Record<string, ToolResult>;
   runs: RunSummary[];
   currentRunId: string;
+  /** When true, suppress the per-run header above each run group.
+   *  Used by RunLog's "current run only" scope mode where the header
+   *  is redundant (only one run is rendered). */
+  hideRunHeader?: boolean;
 }) {
   // Group consecutive events by runId so we can inject per-run headers.
   const runsById = new Map(runs.map((r) => [r.id, r]));
@@ -728,7 +823,7 @@ function EventStream({
         const meta = runsById.get(g.runId);
         return (
           <section key={`${g.runId}-${gi}`} id={`run-${g.runId}`} className="scroll-mt-4">
-            {meta ? (
+            {meta && !hideRunHeader ? (
               <RunHeader
                 ordinal={runOrdinal}
                 meta={meta}
