@@ -301,6 +301,12 @@ export const auditLog = sqliteTable(
     actorIdx: index("audit_log_actor_idx").on(t.actorUserId),
     actionIdx: index("audit_log_action_idx").on(t.action),
     tsIdx: index("audit_log_ts_idx").on(t.ts),
+    // Composite index for cycle helpers: every per-task audit lookup
+    // (cycle detection, awaiting-approval gating, implementation-
+    // complete cutoff) filters by (task_id, action). Without this
+    // index, those queries fall back to action-only scans that grow
+    // unbounded with audit history. See deepen-plan finding (perf #1).
+    taskActionIdx: index("audit_log_task_action_idx").on(t.taskId, t.action),
   }),
 );
 
