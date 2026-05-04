@@ -317,7 +317,13 @@ export async function approveAndPr(
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
-function latestArtifactPerKind(taskId: string): Map<
+// Exports below are consumed by server/git/approveCycle.ts so the two
+// approval paths share the same artifact-fetching / path / gh-env code.
+// Body of approveAndPr stays as-is — only the helpers are shared. Per
+// the architecture-strategist deepen-plan finding: this prevents drift
+// in the substrate without forcing a riskier refactor of the proven
+// state-machine.
+export function latestArtifactPerKind(taskId: string): Map<
   "brainstorm" | "plan" | "review",
   { id: string; kind: "brainstorm" | "plan" | "review"; filename: string; markdown: string; isStale: boolean }
 > {
@@ -354,7 +360,7 @@ function latestArtifactPerKind(taskId: string): Map<
   return out;
 }
 
-function kindDir(kind: "brainstorm" | "plan" | "review"): string {
+export function kindDir(kind: "brainstorm" | "plan" | "review"): string {
   switch (kind) {
     case "brainstorm":
       return "docs/brainstorms";
@@ -384,7 +390,7 @@ function buildPrBody(
   return lines.join("\n");
 }
 
-function ghEnv(): NodeJS.ProcessEnv {
+export function ghEnv(): NodeJS.ProcessEnv {
   const baseline: NodeJS.ProcessEnv = {
     NODE_ENV: process.env.NODE_ENV ?? "production",
     PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
