@@ -4,10 +4,9 @@ import { asc, eq, desc, and, isNull } from "drizzle-orm";
 import { auth } from "@/server/auth/config";
 import { db } from "@/server/db/client";
 import { artifacts, auditLog, messages, prRecords, runs, tasks } from "@/server/db/schema";
-import { RunLog } from "@/components/card-detail/RunLog";
+import { CardThread } from "@/components/card-detail/CardThread";
 import { RunStarter } from "@/components/card-detail/RunStarter";
 import { ResumeBanner } from "@/components/card-detail/ResumeBanner";
-import { ChatBox } from "@/components/card-detail/ChatBox";
 import { ArchiveButton } from "@/components/card-detail/ArchiveButton";
 import { RunSidebar } from "@/components/card-detail/RunSidebar";
 import { ApproveButton } from "@/components/card-detail/ApproveButton";
@@ -358,9 +357,20 @@ export default async function CardDetailPage({ params }: Props) {
 
         <div className="col-span-8 flex min-h-0 flex-col">
           {currentRun ? (
-            <CardMainTabs
-              artifacts={artifactList}
+            <CardThread
+              key={task.id}
+              initialRunId={currentRun.id}
+              initialRun={{
+                status: currentRun.status,
+                costUsd: currentRun.costUsdMicros / 1_000_000,
+                startedAtMs: new Date(currentRun.startedAt).getTime(),
+                claudeSessionId: currentRun.claudeSessionId,
+              }}
+              threadEvents={threadEvents}
+              runs={runSummaries}
+              canControl={canControl}
               taskId={task.id}
+              artifacts={artifactList}
               showChanges={
                 prRecordDTO?.state === "pr_opened" ||
                 prRecordDTO?.state === "jira_notified" ||
@@ -371,34 +381,6 @@ export default async function CardDetailPage({ params }: Props) {
               showShell={!!env.PREVIEW_DEV_ENABLE_SHELL && !!env.PREVIEW_DEV_PATH}
               shellCwd={env.PREVIEW_DEV_PATH ?? null}
               shellCanControl={canControl}
-              logContent={
-                <div className="flex h-full flex-col">
-                  <div className="min-h-0 flex-1">
-                    <RunLog
-                      runId={currentRun.id}
-                      initialStatus={currentRun.status}
-                      initialCostUsd={currentRun.costUsdMicros / 1_000_000}
-                      initialStartedAtMs={new Date(currentRun.startedAt).getTime()}
-                      threadEvents={threadEvents}
-                      runs={runSummaries}
-                      canControl={canControl}
-                    />
-                  </div>
-                </div>
-              }
-              chatContent={
-                currentRun.claudeSessionId && canControl ? (
-                  <ChatBox
-                    runId={currentRun.id}
-                    canSend={currentRun.status !== "running"}
-                    blockedReason={
-                      currentRun.status === "running"
-                        ? "Run is still streaming — click Stop to chat."
-                        : undefined
-                    }
-                  />
-                ) : null
-              }
             />
           ) : artifactList.length > 0 ? (
             <CardMainTabs

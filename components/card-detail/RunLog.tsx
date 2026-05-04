@@ -182,7 +182,7 @@ const initial: State = {
 
 // ─── Component ─────────────────────────────────────────────────────────────
 
-type RunSummary = {
+export type RunSummary = {
   id: string;
   lane: string;
   agentId: string;
@@ -294,14 +294,25 @@ export function RunLog({
   }, [router]);
 
   useEffect(() => {
+    // Cancel-token guard. Event handlers may fire AFTER cleanup runs
+    // because events queued in the JS event loop survive `es.close()`.
+    // Without this, a stale ChatBox/RunLog could dispatch events from
+    // the previous runId after the holder has rebound — surfacing as
+    // wrong-cycle costUsd, NEEDS_INPUT banners on a fresh run, etc.
+    const ctrl = { cancelled: false };
     const es = new EventSource(`/api/runs/${runId}/stream`, { withCredentials: true });
     let replayIdleTimer: ReturnType<typeof setTimeout> | null = null;
     const scheduleLive = () => {
+      if (ctrl.cancelled) return;
       if (replayIdleTimer) clearTimeout(replayIdleTimer);
-      replayIdleTimer = setTimeout(() => dispatch({ kind: "phase", phase: "live" }), 1000);
+      replayIdleTimer = setTimeout(() => {
+        if (ctrl.cancelled) return;
+        dispatch({ kind: "phase", phase: "live" });
+      }, 1000);
     };
 
     const handler = (type: EventRow["type"]) => (e: MessageEvent) => {
+      if (ctrl.cancelled) return;
       let payload: unknown = null;
       try {
         payload = JSON.parse(e.data);
@@ -327,12 +338,17 @@ export function RunLog({
     }
 
     es.onopen = () => {
+      if (ctrl.cancelled) return;
       dispatch({ kind: "connected", on: true });
       dispatch({ kind: "phase", phase: "replay" });
     };
-    es.onerror = () => dispatch({ kind: "connected", on: false });
+    es.onerror = () => {
+      if (ctrl.cancelled) return;
+      dispatch({ kind: "connected", on: false });
+    };
 
     return () => {
+      ctrl.cancelled = true;
       if (replayIdleTimer) clearTimeout(replayIdleTimer);
       es.close();
     };
