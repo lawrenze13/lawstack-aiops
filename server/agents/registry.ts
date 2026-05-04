@@ -171,6 +171,54 @@ Rules:
 `;
 };
 
+/**
+ * QA-fix brainstorm prompt: used when the operator clicks "Fix from QA"
+ * on a `done`-lane card. Wraps the standard brainstormPrompt with a
+ * "## QA findings — round N" prelude built from the operator-selected
+ * Jira comments. The base brainstorm prompt drives the same shape as
+ * cycle 1 — produces a fresh brainstorm.md that downstream Plan and
+ * Review consume via priorArtifacts as usual.
+ *
+ * `findings` comes from the qa-fix/start endpoint after filtering
+ * promptContext.jiraComments to the operator's selected IDs.
+ */
+export function buildQaFixBrainstormPrompt(
+  ctx: PromptContext,
+  findings: ReadonlyArray<{ author: string; created: string; body: string }>,
+  cycleNumber: number,
+): string {
+  const findingsBlock = findings
+    .map(
+      (f, i) =>
+        `${i + 1}. **${f.author}** (${f.created}):\n${f.body
+          .split("\n")
+          .map((line) => `   > ${line}`)
+          .join("\n")}`,
+    )
+    .join("\n\n");
+
+  return `## QA findings — round ${cycleNumber}
+
+Manual QA reviewed the previous PR for ticket ${ctx.jiraKey} and flagged ${
+    findings.length
+  } finding${findings.length === 1 ? "" : "s"} that need addressing in this cycle:
+
+${findingsBlock}
+
+Treat these findings as new requirements that the original brainstorm
+missed or got wrong. Update your thinking to absorb them, then produce
+a fresh brainstorm document that incorporates the QA findings into the
+ticket's design.
+
+The downstream Plan and Review agents will read your output via
+priorArtifacts — be explicit about what's changing from the prior cycle
+so they can re-plan without losing context.
+
+---
+
+${brainstormPrompt(ctx)}`;
+}
+
 // Amendment prompt: used when the user clicks "Amend Plan" after a Review
 // returned AMEND/REWRITE. Produces a revised plan that explicitly addresses
 // every finding in the Review's Incorrect-or-stale + Missing sections.
