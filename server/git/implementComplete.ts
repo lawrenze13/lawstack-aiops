@@ -166,42 +166,73 @@ export async function implementComplete(
   const commits = await getCommitsSinceMain(wt?.path);
 
   // ─── Step 2: Jira implementation comment ─────────────────────────────
+  // QA-fix branch: when the task is mid-QA-fix-cycle, post the QA-fix-
+  // pushed comment instead of the standard implementation-pushed one.
+  // postQaFixComment is best-effort (warn-only on failure) — matches
+  // existing postAmendmentComment semantics. Cycle 1 path unchanged.
+  const { isTaskInQaFixCycle } = await import("@/server/lib/taskCycle");
+  const inQaFixCycle = isTaskInQaFixCycle(taskId);
   let jiraCommentId: string | null = null;
-  const priorCommentPosted = hasPriorAudit(taskId, "jira.implement_comment_posted");
-  if (priorCommentPosted) {
-    warnings.push("implementation comment already posted; skipping");
-  } else if (!env.JIRA_BASE_URL) {
-    warnings.push("JIRA_BASE_URL not configured; skipping comment");
+  if (inQaFixCycle) {
+    const { postQaFixComment } = await import("@/server/jira/qaFixComment");
+    await postQaFixComment({
+      runId,
+      taskId,
+      prUrl: pr.prUrl,
+    });
+    // postQaFixComment writes its own audit row (jira.qa_fix_comment_*).
+    // jiraCommentId stays null in the return — the QA-fix audit row is
+    // the source of truth for downstream reporting.
   } else {
-    try {
-      const implementationMarkdown = await getImplementationMarkdown(taskId);
-      const body = implementCommentDoc({
-        prUrl: pr.prUrl,
-        jiraKey: task.jiraKey,
-        title: task.title,
-        commits,
-        implementationMarkdown,
-      });
-      jiraCommentId = await postComment(task.jiraKey, body);
-      audit({
-        action: "jira.implement_comment_posted",
-        taskId,
-        runId,
-        payload: { commentId: jiraCommentId, commits: commits.length },
-      });
-    } catch (err) {
-      return {
-        ok: false,
-        failedAt: "implementation_comment",
-        error: `Jira comment failed: ${(err as Error).message}`,
-      };
+    const priorCommentPosted = hasPriorAudit(
+      taskId,
+      "jira.implement_comment_posted",
+    );
+    if (priorCommentPosted) {
+      warnings.push("implementation comment already posted; skipping");
+    } else if (!env.JIRA_BASE_URL) {
+      warnings.push("JIRA_BASE_URL not configured; skipping comment");
+    } else {
+      try {
+        const implementationMarkdown = await getImplementationMarkdown(taskId);
+        const body = implementCommentDoc({
+          prUrl: pr.prUrl,
+          jiraKey: task.jiraKey,
+          title: task.title,
+          commits,
+          implementationMarkdown,
+        });
+        jiraCommentId = await postComment(task.jiraKey, body);
+        audit({
+          action: "jira.implement_comment_posted",
+          taskId,
+          runId,
+          payload: { commentId: jiraCommentId, commits: commits.length },
+        });
+      } catch (err) {
+        return {
+          ok: false,
+          failedAt: "implementation_comment",
+          error: `Jira comment failed: ${(err as Error).message}`,
+        };
+      }
     }
   }
 
   // ─── Step 3: Jira transition → Code Review ───────────────────────────
+  // QA-fix branch: Jira is already in Code Review from cycle 1 — skip
+  // the transition entirely. The audit row makes the skip discoverable
+  // for ops monitoring.
   const priorTransitioned = hasPriorAudit(taskId, "jira.code_review_transitioned");
   let transitioned = false;
-  if (priorTransitioned) {
+  if (inQaFixCycle) {
+    audit({
+      action: "jira.code_review_transition_skipped",
+      taskId,
+      runId,
+      payload: { reason: "qa_cycle_already_in_review" },
+    });
+  } else if (priorTransitioned) {
     warnings.push("already transitioned to review status; skipping");
   } else if (env.JIRA_BASE_URL && env.JIRA_API_TOKEN) {
     try {

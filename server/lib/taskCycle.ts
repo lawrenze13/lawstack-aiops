@@ -21,7 +21,7 @@
 // `qaFixCycle` flag from the same `run.started_request` audit row. The
 // generic cycle counting here works for ANY cycle trigger.
 
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/server/db/client";
 import { auditLog, runs, tasks } from "@/server/db/schema";
 
@@ -74,10 +74,9 @@ export function getCycleContext(taskId: string): CycleContext {
     .where(
       and(
         eq(runs.taskId, taskId),
-        // Lane filter — see CYCLE_START_LANES note.
-        // For now this is just `eq(runs.lane, "brainstorm")`; if more
-        // start-lane kinds land later, swap to inArray(runs.lane, [...]).
-        eq(runs.lane, "brainstorm"),
+        // Lane filter via CYCLE_START_LANES — see constant header for the
+        // customizable-workflow lift path.
+        inArray(runs.lane, [...CYCLE_START_LANES]),
         isNull(runs.supersededAt),
       ),
     )
@@ -121,6 +120,102 @@ export function currentCycleNumber(taskId: string): number {
 
 export function currentCycleStartedAt(taskId: string): Date {
   return getCycleContext(taskId).startedAt;
+}
+
+/**
+ * True iff the brainstorm run identified by runId was started as the
+ * head of a QA fix cycle (operator clicked Fix from QA). Mirrors the
+ * shape of `wasAmendmentRun` in server/jira/amendComment.ts.
+ *
+ * Reads the run's `run.started_request` audit row's payload — the
+ * `qaFixCycle: true` flag is set by the qa-fix/start endpoint when it
+ * forwards into startRun.
+ */
+export function wasQaFixCycleRun(runId: string): boolean {
+  const row = db
+    .select({ payloadJson: auditLog.payloadJson })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.runId, runId),
+        eq(auditLog.action, "run.started_request"),
+      ),
+    )
+    .limit(1)
+    .get();
+  if (!row?.payloadJson) return false;
+  try {
+    const payload = JSON.parse(row.payloadJson) as { qaFixCycle?: boolean };
+    return payload.qaFixCycle === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True iff the task is currently mid-QA-fix-cycle: there's been a
+ * brainstorm run-start with `qaFixCycle: true` since the most recent
+ * `task.implementation_complete` audit row (or since task creation if
+ * the task has never reached done — that case is a no-op in practice
+ * because the QA-fix button only fires from the `done` lane).
+ *
+ * Used by `implementComplete` to swap the implementation-pushed Jira
+ * comment for the QA-fix-pushed one, and by the UI to render the
+ * QA-fix-specific chip text.
+ */
+export function isTaskInQaFixCycle(taskId: string): boolean {
+  // Find the most recent run.started_request with qaFixCycle=true for
+  // this task. If it exists AND no task.implementation_complete row
+  // has fired since, the cycle is open.
+  const qaStart = db
+    .select({ id: auditLog.id })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.taskId, taskId),
+        eq(auditLog.action, "run.started_request"),
+        sql`json_extract(${auditLog.payloadJson}, '$.qaFixCycle') = 1`,
+      ),
+    )
+    .orderBy(desc(auditLog.id))
+    .limit(1)
+    .get();
+  if (!qaStart) return false;
+
+  const closeAfter = db
+    .select({ id: auditLog.id })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.taskId, taskId),
+        eq(auditLog.action, "task.implementation_complete"),
+        sql`${auditLog.id} > ${qaStart.id}`,
+      ),
+    )
+    .limit(1)
+    .get();
+
+  return !closeAfter;
+}
+
+/**
+ * Number of QA fix cycles that have been started for this task.
+ * 0 = never; 1 = one QA cycle started (regardless of whether closed).
+ * Drives the `QA fix · N` chip on the card header.
+ */
+export function qaFixCycleCount(taskId: string): number {
+  const row = db
+    .select({ count: sql<number>`COUNT(*)` })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.taskId, taskId),
+        eq(auditLog.action, "run.started_request"),
+        sql`json_extract(${auditLog.payloadJson}, '$.qaFixCycle') = 1`,
+      ),
+    )
+    .get();
+  return row?.count ?? 0;
 }
 
 /**

@@ -8,10 +8,12 @@ import { audit } from "@/server/auth/audit";
 import { ensureWorktree } from "@/server/git/worktree";
 import {
   buildAmendPlanPrompt,
+  buildQaFixBrainstormPrompt,
   getAgent,
   snapshotAgent,
   type Lane,
 } from "@/server/agents/registry";
+import { qaFixCycleCount } from "@/server/lib/taskCycle";
 import { syncAgentRegistry } from "@/server/agents/sync";
 import { AppError, BadRequest, Conflict, NotFound } from "@/server/lib/errors";
 import { env } from "@/server/lib/env";
@@ -50,6 +52,29 @@ export type StartRunParams = {
    * Only meaningful for lane='plan', agentId='ce:plan'.
    */
   amendFromReview?: boolean;
+  /**
+   * QA-fix cycle marker — set by the qa-fix/start endpoint when the
+   * operator clicks "Fix from QA" on a `done`-lane card. Only honoured
+   * when explicitly passed; auto-advance child runs (plan, review)
+   * inherit cycle state via `isTaskInQaFixCycle(taskId)` rather than
+   * carrying the flag on their own audit rows.
+   *
+   * When true:
+   *   - Filters promptContext.jiraComments to only `qaCommentIds`
+   *     (drops noisy non-QA comments).
+   *   - Builds the brainstorm prompt via `buildQaFixBrainstormPrompt`
+   *     with a "## QA findings — round N" prelude.
+   *   - Emits qaFixCycle/qaCommentIds/qaCycleNumber in the
+   *     run.started_request audit payload — used by
+   *     `wasQaFixCycleRun(runId)` and `isTaskInQaFixCycle(taskId)`
+   *     downstream (taskCycle.ts).
+   *
+   * Only meaningful for lane='brainstorm', agentId='ce:brainstorm'.
+   */
+  qaFixCycle?: boolean;
+  /** Operator-selected Jira comment IDs (the comments-since-done
+   *  picker output). Required when qaFixCycle=true; ignored otherwise. */
+  qaCommentIds?: string[];
   /**
    * Interactive mode — only meaningful for `ce:work`. When true the agent
    * prompt instructs the agent to pause via NEEDS_INPUT before every Bash
@@ -158,6 +183,26 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
     .where(and(eq(artifacts.taskId, task.id), eq(artifacts.kind, "review")))
     .all().length;
 
+  // For a QA fix cycle, filter Jira comments to ONLY the operator-
+  // selected ones. Without this filter, the brainstorm prompt would get
+  // every Jira comment (Slack-bridge pings, manager nudges, etc.) plus
+  // the curated QA findings — noisy and dilutes the agent's focus.
+  // Also computes qaCycleNumber as the count BEFORE this run starts;
+  // stored on the audit row so future readers can recover cycle history
+  // without recomputing.
+  const isQaFixStart =
+    params.qaFixCycle === true &&
+    params.lane === "brainstorm" &&
+    Array.isArray(params.qaCommentIds) &&
+    params.qaCommentIds.length > 0;
+  const qaCommentIds = isQaFixStart ? new Set(params.qaCommentIds!) : null;
+  const qaFindings = qaCommentIds
+    ? jiraComments.filter((c) => qaCommentIds.has(c.id))
+    : [];
+  const qaCycleNumberForAudit = isQaFixStart
+    ? qaFixCycleCount(params.taskId) + 1
+    : 0;
+
   const promptContext = {
     jiraKey: task.jiraKey,
     title: task.title,
@@ -165,15 +210,19 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
     priorArtifacts: priorArtifacts.map((a) => ({ kind: a.kind, markdown: a.markdown })),
     recentCommits,
     priorReviewCount,
-    jiraComments,
+    // QA-fix runs override the default jiraComments with only the
+    // operator-selected subset so noisy comments don't reach the prompt.
+    jiraComments: isQaFixStart ? qaFindings : jiraComments,
     interactive: params.interactive ?? false,
   };
 
   let prompt = params.overridePrompt
     ? params.overridePrompt
-    : params.amendFromReview
-      ? buildAmendPlanPrompt(promptContext)
-      : agent.buildPrompt(promptContext);
+    : isQaFixStart
+      ? buildQaFixBrainstormPrompt(promptContext, qaFindings, qaCycleNumberForAudit)
+      : params.amendFromReview
+        ? buildAmendPlanPrompt(promptContext)
+        : agent.buildPrompt(promptContext);
 
   // Append any user-supplied steering text to the tail of the prompt so
   // it reads as an overlay on the default contract rather than replacing
@@ -243,6 +292,17 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
       resume: !!params.resumeSessionId,
       initiator: params.initiator.kind,
       amendFromReview: params.amendFromReview ?? false,
+      // QA-fix metadata. wasQaFixCycleRun(runId) and isTaskInQaFixCycle
+      // (taskCycle.ts) read these. Auto-advance child runs (plan,
+      // review) DON'T set qaFixCycle on their own audit rows — they
+      // inherit cycle state via isTaskInQaFixCycle.
+      ...(isQaFixStart
+        ? {
+            qaFixCycle: true,
+            qaCommentIds: params.qaCommentIds,
+            qaCycleNumber: qaCycleNumberForAudit,
+          }
+        : {}),
     },
   });
 
