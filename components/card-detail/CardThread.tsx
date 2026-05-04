@@ -141,6 +141,7 @@ export function CardThread({
       shellCanControl={shellCanControl}
       logContent={logContent}
       chatContent={chatContent}
+      runs={runs}
     />
   );
 }
