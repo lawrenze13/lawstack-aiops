@@ -243,16 +243,31 @@ export async function implementComplete(
   }
 
   // ─── Step 4: move task lane to 'done' ────────────────────────────────
+  // Wrap lane update + cycle-close audit in a single transaction. They
+  // were previously two sequential statements — a crash between them
+  // left lane=done with no `task.implementation_complete` audit row,
+  // breaking cycle helpers (`isTaskInQaFixCycle` would never close the
+  // cycle; `awaitingImplementationApproval` cycle-scoped predicate
+  // would mis-classify a finished task as still awaiting).
+  // (Deepen-plan finding: data-integrity SEV-2.)
   try {
-    db.update(tasks)
-      .set({ currentLane: "done", updatedAt: new Date() })
-      .where(eq(tasks.id, taskId))
-      .run();
-    audit({
-      action: "task.implementation_complete",
-      taskId,
-      runId,
-      payload: { pushed, commits: commits.length, transitioned },
+    db.transaction((tx) => {
+      tx.update(tasks)
+        .set({ currentLane: "done", updatedAt: new Date() })
+        .where(eq(tasks.id, taskId))
+        .run();
+      tx.insert(auditLog)
+        .values({
+          action: "task.implementation_complete",
+          taskId,
+          runId,
+          payloadJson: JSON.stringify({
+            pushed,
+            commits: commits.length,
+            transitioned,
+          }),
+        })
+        .run();
     });
   } catch (err) {
     return {
