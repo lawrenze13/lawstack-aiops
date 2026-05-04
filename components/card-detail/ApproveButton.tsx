@@ -25,9 +25,21 @@ type Props = {
   prRecord: PrRecord | null;
   gate: ArtifactGate;
   canControl: boolean;
+  /** Multi-cycle support. Defaults to 1 to avoid call-site churn at
+   *  pre-existing usages. When > 1, the button skips the cycle-1
+   *  terminal-state chips (the prRecord is at `jira_notified` from
+   *  cycle 1, but cycle 2's fresh artifacts still need pushing) and
+   *  always renders the action button labeled "Push cycle N to PR". */
+  cycleNumber?: number;
 };
 
-export function ApproveButton({ taskId, prRecord, gate, canControl }: Props) {
+export function ApproveButton({
+  taskId,
+  prRecord,
+  gate,
+  canControl,
+  cycleNumber = 1,
+}: Props) {
   const router = useRouter();
   const toast = useToast();
   const [pending, startTransition] = useTransition();
@@ -35,25 +47,16 @@ export function ApproveButton({ taskId, prRecord, gate, canControl }: Props) {
 
   if (!canControl) return null;
 
-  // PR already opened — show the link + optional retry for Jira.
-  if (prRecord?.prUrl && prRecord.state === "jira_notified") {
-    return (
-      <a
-        href={prRecord.prUrl}
-        target="_blank"
-        rel="noreferrer"
-        className="contents"
-      >
-        <Chip color="success" variant="soft" size="sm">
-          ✓ PR opened → view
-        </Chip>
-      </a>
-    );
-  }
+  const inMultiCycle = cycleNumber > 1;
 
-  if (prRecord?.prUrl && prRecord.state === "pr_opened") {
-    return (
-      <div className="flex items-center gap-2">
+  // CYCLE 1 ONLY: render terminal-state chips. Cycle N>1 doesn't update
+  // prRecords.state past `jira_notified` (approveCycle deliberately
+  // doesn't touch the state machine), so on cycle N>1 we always fall
+  // through to the action button below.
+  if (!inMultiCycle) {
+    // PR already opened — show the link + optional retry for Jira.
+    if (prRecord?.prUrl && prRecord.state === "jira_notified") {
+      return (
         <a
           href={prRecord.prUrl}
           target="_blank"
@@ -61,40 +64,76 @@ export function ApproveButton({ taskId, prRecord, gate, canControl }: Props) {
           className="contents"
         >
           <Chip color="success" variant="soft" size="sm">
-            PR opened
+            ✓ PR opened → view
           </Chip>
         </a>
-        <ApproveRetry
-          taskId={taskId}
-          label="Retry Jira comment"
-          pending={pending}
-          onRetry={() => runApprove(taskId, startTransition, setError, router.refresh.bind(router), toast.push)}
-          error={error}
-        />
-      </div>
-    );
+      );
+    }
+
+    if (prRecord?.prUrl && prRecord.state === "pr_opened") {
+      return (
+        <div className="flex items-center gap-2">
+          <a
+            href={prRecord.prUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="contents"
+          >
+            <Chip color="success" variant="soft" size="sm">
+              PR opened
+            </Chip>
+          </a>
+          <ApproveRetry
+            taskId={taskId}
+            label="Retry Jira comment"
+            pending={pending}
+            onRetry={() =>
+              runApprove(
+                taskId,
+                startTransition,
+                setError,
+                router.refresh.bind(router),
+                toast.push,
+                cycleNumber,
+              )
+            }
+            error={error}
+          />
+        </div>
+      );
+    }
+
+    // Failed mid-flight — show Retry.
+    if (prRecord && prRecord.state.startsWith("failed_at_")) {
+      const failedStep = prRecord.state.replace("failed_at_", "");
+      return (
+        <div className="flex items-center gap-2">
+          <Chip color="danger" variant="soft" size="sm">
+            failed at {failedStep}
+          </Chip>
+          <ApproveRetry
+            taskId={taskId}
+            label="Retry"
+            pending={pending}
+            onRetry={() =>
+              runApprove(
+                taskId,
+                startTransition,
+                setError,
+                router.refresh.bind(router),
+                toast.push,
+                cycleNumber,
+              )
+            }
+            error={error}
+          />
+        </div>
+      );
+    }
   }
 
-  // Failed mid-flight — show Retry.
-  if (prRecord && prRecord.state.startsWith("failed_at_")) {
-    const failedStep = prRecord.state.replace("failed_at_", "");
-    return (
-      <div className="flex items-center gap-2">
-        <Chip color="danger" variant="soft" size="sm">
-          failed at {failedStep}
-        </Chip>
-        <ApproveRetry
-          taskId={taskId}
-          label="Retry"
-          pending={pending}
-          onRetry={() => runApprove(taskId, startTransition, setError, router.refresh.bind(router), toast.push)}
-          error={error}
-        />
-      </div>
-    );
-  }
-
-  // Fresh approval. Gate first.
+  // Fresh approval (cycle 1) OR cycle N>1 push. Gate first — same
+  // artifact-staleness check applies in both cases.
   const gateErrors: string[] = [];
   if (!gate.brainstorm.present) gateErrors.push("brainstorm missing");
   else if (gate.brainstorm.stale) gateErrors.push("brainstorm stale — re-run");
@@ -102,18 +141,41 @@ export function ApproveButton({ taskId, prRecord, gate, canControl }: Props) {
   else if (gate.plan.stale) gateErrors.push("plan stale — re-run");
 
   const disabled = gateErrors.length > 0 || pending;
+  const label = inMultiCycle
+    ? `↑ Push cycle ${cycleNumber} to PR`
+    : "✓ Approve & PR";
+  const pendingLabel = inMultiCycle ? "Pushing…" : "Approving…";
 
   return (
     <div className="flex items-center gap-2">
+      {inMultiCycle && prRecord?.prUrl ? (
+        <a
+          href={prRecord.prUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="contents"
+        >
+          <Chip color="default" variant="soft" size="sm">
+            PR ↗
+          </Chip>
+        </a>
+      ) : null}
       <Button
         {...BUTTON_INTENTS["success-action"]}
         size="sm"
         isDisabled={disabled}
         onPress={() =>
-          runApprove(taskId, startTransition, setError, router.refresh.bind(router), toast.push)
+          runApprove(
+            taskId,
+            startTransition,
+            setError,
+            router.refresh.bind(router),
+            toast.push,
+            cycleNumber,
+          )
         }
       >
-        {pending ? "Approving…" : "✓ Approve & PR"}
+        {pending ? pendingLabel : label}
       </Button>
       {gateErrors.length > 0 ? (
         <span className="text-[10px] text-[color:var(--muted)]">
@@ -158,6 +220,7 @@ function runApprove(
   setError: (v: string | null) => void,
   refresh: () => void,
   toastPush: (t: { kind: "success" | "error" | "warn" | "info"; title: string; body?: string }) => void,
+  cycleNumber: number,
 ): void {
   setError(null);
   startTransition(async () => {
@@ -169,6 +232,9 @@ function runApprove(
       message?: string;
       jiraWarning?: string | null;
       prUrl?: string;
+      // Cycle N>1 response shape (from approveCycle):
+      cycleNumber?: number;
+      pushed?: boolean;
     };
     if (!res.ok) {
       const msg = json.message ?? `HTTP ${res.status}`;
@@ -184,6 +250,19 @@ function runApprove(
       refresh();
       return;
     }
+    // Cycle N>1 success path — different toast.
+    if (cycleNumber > 1) {
+      toastPush({
+        kind: "success",
+        title: `Cycle ${cycleNumber} pushed to PR`,
+        body: json.pushed === false
+          ? "no artifact changes — push was a no-op"
+          : json.prUrl ?? undefined,
+      });
+      refresh();
+      return;
+    }
+    // Cycle 1 success path.
     if (json.jiraWarning) {
       setError(json.jiraWarning);
       toastPush({

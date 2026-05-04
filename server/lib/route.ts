@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/server/auth/config";
-import { AppError, TooManyRequests, Unauthorized } from "./errors";
+import { AppError, DirtyTreeConflict, TooManyRequests, Unauthorized } from "./errors";
 
 type Handler<T> = (ctx: {
   req: Request;
@@ -44,6 +44,12 @@ export function errorResponse(err: unknown): Response {
     return NextResponse.json(
       { error: err.name, message: err.message, retryAfterSec: err.retryAfterSec },
       { status: err.status, headers },
+    );
+  }
+  if (err instanceof DirtyTreeConflict) {
+    return NextResponse.json(
+      { error: err.name, message: err.message, dirtyCount: err.dirtyCount },
+      { status: err.status },
     );
   }
   if (err instanceof AppError) {

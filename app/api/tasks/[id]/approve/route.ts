@@ -4,6 +4,8 @@ import { BadRequest, Forbidden, NotFound } from "@/server/lib/errors";
 import { db } from "@/server/db/client";
 import { tasks } from "@/server/db/schema";
 import { approveAndPr } from "@/server/git/approve";
+import { approveCycle } from "@/server/git/approveCycle";
+import { currentCycleNumber } from "@/server/lib/taskCycle";
 import { withRunLock } from "@/server/worker/chatMutex";
 
 export const runtime = "nodejs";
@@ -21,8 +23,19 @@ export const POST = withAuth(async ({ req, user }) => {
     throw new Forbidden("only the card owner or an admin can approve");
   }
 
-  // Reuse the run-lock machinery keyed on taskId to serialise concurrent
-  // Approve clicks from two tabs.
-  const result = await withRunLock(`approve:${taskId}`, () => approveAndPr(taskId, user.id));
-  return result;
+  // Cycle dispatch happens INSIDE the lock — not at the top of this
+  // handler — so a concurrent brainstorm POST (different lock key) can't
+  // race-flip the cycle number between our read and the lock acquisition.
+  // (Deepen-plan finding: data-integrity SEV-1.)
+  return await withRunLock(`approve:${taskId}`, async () => {
+    const cycle = currentCycleNumber(taskId);
+    if (cycle > 1) {
+      // Cycle N>1 — push the latest brainstorm/plan/review onto the
+      // existing PR. No "PR opened" Jira comment (cycle 1 already
+      // posted that). The implementation comment from the upcoming
+      // ce:work + Approve Implementation flow is what closes the cycle.
+      return await approveCycle(taskId, user.id);
+    }
+    return await approveAndPr(taskId, user.id);
+  });
 });

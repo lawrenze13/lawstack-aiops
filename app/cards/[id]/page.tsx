@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { asc, eq, desc, and, isNull } from "drizzle-orm";
+import { asc, eq, desc, and, gt, isNull } from "drizzle-orm";
 import { auth } from "@/server/auth/config";
 import { db } from "@/server/db/client";
 import { artifacts, auditLog, messages, prRecords, runs, tasks } from "@/server/db/schema";
@@ -11,6 +11,8 @@ import { ArchiveButton } from "@/components/card-detail/ArchiveButton";
 import { RunSidebar } from "@/components/card-detail/RunSidebar";
 import { ApproveButton } from "@/components/card-detail/ApproveButton";
 import { AmendPlanButton } from "@/components/card-detail/AmendPlanButton";
+import { FixFromQaButton } from "@/components/card-detail/FixFromQaButton";
+import { QaCycleChip } from "@/components/card-detail/QaCycleChip";
 import { ArtifactPanel } from "@/components/card-detail/ArtifactPanel";
 import { CardMainTabs } from "@/components/card-detail/CardMainTabs";
 import { DescriptionPanel } from "@/components/card-detail/DescriptionPanel";
@@ -21,6 +23,11 @@ import { readReviewState } from "@/server/git/reviewVerdict";
 import { PreviewDevButton } from "@/components/card-detail/PreviewDevButton";
 import { AGENTS, defaultAgentForLane } from "@/server/agents/registry";
 import { env } from "@/server/lib/env";
+import {
+  currentCycleStartedAt,
+  currentCycleNumber,
+  qaFixCycleCount,
+} from "@/server/lib/taskCycle";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -106,9 +113,21 @@ export default async function CardDetailPage({ params }: Props) {
   // + lane→done. Gating:
   //   - `awaitingApproval`: show the approve button
   //   - `implementationFinalised`: show the "finalised" chip
+  //
+  // CYCLE-SCOPED: when the operator re-runs brainstorm after a `done`
+  // (multi-cycle support), all three gating predicates must consider
+  // ONLY runs/audit-rows from the current cycle — otherwise cycle 1's
+  // implementation_complete sticks `implementationFinalised=true`
+  // forever and the second-cycle approve button never re-appears.
+  const cycleStart = currentCycleStartedAt(id);
+  const cycleNumber = currentCycleNumber(id);
   const latestImplementRun = [...allRuns]
     .reverse()
-    .find((r) => r.lane === "implement");
+    .find(
+      (r) =>
+        r.lane === "implement" &&
+        new Date(r.startedAt).getTime() >= cycleStart.getTime(),
+    );
   const implementationFinalised = !!db
     .select({ id: auditLog.id })
     .from(auditLog)
@@ -116,6 +135,7 @@ export default async function CardDetailPage({ params }: Props) {
       and(
         eq(auditLog.taskId, id),
         eq(auditLog.action, "task.implementation_complete"),
+        gt(auditLog.ts, cycleStart),
       ),
     )
     .limit(1)
@@ -252,6 +272,7 @@ export default async function CardDetailPage({ params }: Props) {
           <span className="rounded bg-[color:var(--surface-secondary)] px-2 py-1 font-medium">
             lane: {task.currentLane}
           </span>
+          <QaCycleChip count={qaFixCycleCount(task.id)} />
           {reviewVerdict && reviewVerdict !== "READY" ? (
             <AmendPlanButton
               taskId={task.id}
@@ -260,24 +281,37 @@ export default async function CardDetailPage({ params }: Props) {
               runActive={allRuns.some((r) => r.status === "running")}
             />
           ) : null}
+          <FixFromQaButton
+            taskId={task.id}
+            currentLane={task.currentLane}
+            canControl={canControl}
+            runActive={allRuns.some((r) => r.status === "running")}
+          />
           <ApproveButton
             taskId={task.id}
             prRecord={prRecordDTO}
             gate={gate}
             canControl={canControl}
+            cycleNumber={cycleNumber}
           />
           <ImplementButton
             taskId={task.id}
             prOpened={
               prRecordDTO?.state === "pr_opened" ||
-              prRecordDTO?.state === "jira_notified"
+              prRecordDTO?.state === "jira_notified" ||
+              // Cycle N>1 doesn't update prRecords.state past `jira_notified`
+              // (approveCycle deliberately doesn't touch the state machine),
+              // so on cycle 2+ we treat any prior PR-record as "PR is open."
+              cycleNumber > 1
             }
-            // Button hides only for in-flight or successful Implement runs.
-            // Stopped/failed/cost-killed/interrupted runs leave the button
-            // visible so the user can retry.
+            // CYCLE-SCOPED: only count implement runs from the current
+            // cycle. Without this, cycle 1's completed implement run keeps
+            // the button hidden forever and cycle 2 has no path to start
+            // a fresh implement.
             implementStarted={allRuns.some(
               (r) =>
                 r.lane === "implement" &&
+                new Date(r.startedAt).getTime() >= cycleStart.getTime() &&
                 (r.status === "running" ||
                   r.status === "awaiting_input" ||
                   r.status === "completed"),
@@ -400,6 +434,7 @@ export default async function CardDetailPage({ params }: Props) {
                 </p>
               }
               chatContent={null}
+              runs={runSummaries}
             />
           ) : (
             <div className="flex h-full items-center justify-center rounded-lg border border-[color:var(--border)] p-6 text-sm text-[color:var(--muted)]">

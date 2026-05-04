@@ -7,6 +7,8 @@ import { BUTTON_INTENTS } from "@/components/ui/tokens";
 import { ArtifactViewer } from "./ArtifactViewer";
 import { ChangesViewer } from "./ChangesViewer";
 import { DevShell } from "./DevShell";
+import { RunHistoryList } from "./RunHistoryList";
+import type { RunSummary } from "./RunLog";
 
 export type CardArtifact = {
   kind:
@@ -23,7 +25,7 @@ export type CardArtifact = {
   isStale: boolean;
 };
 
-type TabId = "log" | CardArtifact["kind"] | "changes" | "shell";
+type TabId = "log" | "history" | CardArtifact["kind"] | "changes" | "shell";
 
 const ARTIFACT_KINDS: CardArtifact["kind"][] = [
   "brainstorm",
@@ -55,6 +57,12 @@ type Props = {
   showShell: boolean;
   shellCwd?: string | null;
   shellCanControl?: boolean;
+  /**
+   * Run history for the History tab. Same shape RunLog already
+   * receives — passed through here so the tab can render without an
+   * additional DB query.
+   */
+  runs?: RunSummary[];
 };
 
 const KIND_ORDER: CardArtifact["kind"][] = [
@@ -87,6 +95,7 @@ export function CardMainTabs({
   showShell,
   shellCwd,
   shellCanControl,
+  runs,
 }: Props) {
   // Tab state is local-only. Initial state is always "log" (matches the
   // SSR render so we don't get a hydration mismatch when the URL has
@@ -136,6 +145,18 @@ export function CardMainTabs({
         <TabButton key="log" active={active === "log"} onClick={() => setActive("log")}>
           Run log
         </TabButton>
+        {runs && runs.length > 0 ? (
+          <TabButton
+            key="history"
+            active={active === "history"}
+            onClick={() => setActive("history")}
+          >
+            History
+            <span className="ml-1 font-mono text-[9px] text-[color:var(--muted)]">
+              {runs.length}
+            </span>
+          </TabButton>
+        ) : null}
         {ordered.map((a) => (
           <TabButton
             key={a.kind}
@@ -183,6 +204,7 @@ export function CardMainTabs({
         >
           {logContent}
         </div>
+        {active === "history" && runs ? <RunHistoryList runs={runs} /> : null}
         {active === "changes" ? <ChangesViewer taskId={taskId} /> : null}
         {active === "shell" ? (
           <DevShell
