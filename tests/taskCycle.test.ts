@@ -184,6 +184,82 @@ describe("taskCycle thin wrappers", () => {
   });
 });
 
+// ─── QA-fix helpers ──────────────────────────────────────────────────────
+
+function insertRunStartAudit(opts: {
+  runId: string;
+  taskId?: string;
+  qaFixCycle?: boolean;
+  qaCycleNumber?: number;
+}) {
+  testDb
+    .insert(schema.auditLog)
+    .values({
+      action: "run.started_request",
+      taskId: opts.taskId ?? "task-1",
+      runId: opts.runId,
+      payloadJson: JSON.stringify({
+        lane: "brainstorm",
+        agentId: "ce:brainstorm",
+        ...(opts.qaFixCycle ? { qaFixCycle: true, qaCycleNumber: opts.qaCycleNumber } : {}),
+      }),
+    })
+    .run();
+}
+
+describe("taskCycle.wasQaFixCycleRun", () => {
+  it("returns false when no audit row exists for the run", () => {
+    expect(taskCycle.wasQaFixCycleRun("nonexistent")).toBe(false);
+  });
+
+  it("returns false for a run started without qaFixCycle", () => {
+    insertRunStartAudit({ runId: "run-x" });
+    expect(taskCycle.wasQaFixCycleRun("run-x")).toBe(false);
+  });
+
+  it("returns true for a run started with qaFixCycle=true", () => {
+    insertRunStartAudit({ runId: "run-qa", qaFixCycle: true, qaCycleNumber: 1 });
+    expect(taskCycle.wasQaFixCycleRun("run-qa")).toBe(true);
+  });
+});
+
+describe("taskCycle.isTaskInQaFixCycle", () => {
+  it("returns false when no QA cycle has ever started", () => {
+    expect(taskCycle.isTaskInQaFixCycle("task-1")).toBe(false);
+  });
+
+  it("returns true when a QA cycle started and has not closed", () => {
+    insertRunStartAudit({ runId: "run-qa", qaFixCycle: true, qaCycleNumber: 1 });
+    expect(taskCycle.isTaskInQaFixCycle("task-1")).toBe(true);
+  });
+
+  it("returns false when a task.implementation_complete fires after the QA start", () => {
+    insertRunStartAudit({ runId: "run-qa", qaFixCycle: true, qaCycleNumber: 1 });
+    insertImplementationCompleteAudit(5_000_000_000_000);
+    expect(taskCycle.isTaskInQaFixCycle("task-1")).toBe(false);
+  });
+
+  it("returns true again when a second QA cycle starts after a close", () => {
+    insertRunStartAudit({ runId: "run-qa-1", qaFixCycle: true, qaCycleNumber: 1 });
+    insertImplementationCompleteAudit(5_000_000_000_000);
+    insertRunStartAudit({ runId: "run-qa-2", qaFixCycle: true, qaCycleNumber: 2 });
+    expect(taskCycle.isTaskInQaFixCycle("task-1")).toBe(true);
+  });
+});
+
+describe("taskCycle.qaFixCycleCount", () => {
+  it("returns 0 when no QA cycle has been started", () => {
+    expect(taskCycle.qaFixCycleCount("task-1")).toBe(0);
+  });
+
+  it("counts QA-cycle brainstorm starts only (ignores normal brainstorms)", () => {
+    insertRunStartAudit({ runId: "run-normal" });
+    insertRunStartAudit({ runId: "run-qa-1", qaFixCycle: true, qaCycleNumber: 1 });
+    insertRunStartAudit({ runId: "run-qa-2", qaFixCycle: true, qaCycleNumber: 2 });
+    expect(taskCycle.qaFixCycleCount("task-1")).toBe(2);
+  });
+});
+
 describe("taskCycle.lastImplementationCompleteAt", () => {
   it("returns null when the task has never reached done", () => {
     expect(taskCycle.lastImplementationCompleteAt("task-1")).toBeNull();
