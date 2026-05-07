@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gt } from "drizzle-orm";
 import { withAuth } from "@/server/lib/route";
 import { BadRequest, Conflict, Forbidden, NotFound } from "@/server/lib/errors";
 import { db } from "@/server/db/client";
@@ -20,7 +20,10 @@ export const runtime = "nodejs";
  * Preconditions:
  *   - caller is the card owner or admin
  *   - latest implement run for this task has status='completed'
- *   - no prior `task.implementation_complete` audit row (already approved)
+ *   - no `task.implementation_complete` audit row newer than that run's
+ *     `startedAt` (idempotent per implement run, not per task — so a
+ *     follow-up implement run after an earlier approval can still be
+ *     finalised)
  */
 export const POST = withAuth(async ({ req, user }) => {
   const url = new URL(req.url);
@@ -35,29 +38,9 @@ export const POST = withAuth(async ({ req, user }) => {
     throw new Forbidden("only the card owner or an admin can approve");
   }
 
-  // Already approved? Short-circuit so double-clicks are idempotent.
-  const alreadyApproved = db
-    .select({ id: auditLog.id })
-    .from(auditLog)
-    .where(
-      and(
-        eq(auditLog.taskId, taskId),
-        eq(auditLog.action, "task.implementation_complete"),
-      ),
-    )
-    .limit(1)
-    .get();
-  if (alreadyApproved) {
-    return {
-      ok: true,
-      alreadyApproved: true,
-      message: "implementation already finalised",
-    };
-  }
-
-  // Find the most recent completed implement run.
+  // Find the most recent implement run.
   const run = db
-    .select({ id: runs.id, status: runs.status })
+    .select({ id: runs.id, status: runs.status, startedAt: runs.startedAt })
     .from(runs)
     .where(and(eq(runs.taskId, taskId), eq(runs.lane, "implement")))
     .orderBy(desc(runs.startedAt))
@@ -68,6 +51,30 @@ export const POST = withAuth(async ({ req, user }) => {
     throw new Conflict(
       `implement run must be completed before approval (currently ${run.status})`,
     );
+  }
+
+  // Already approved? Per-run idempotency: only short-circuit if a
+  // task.implementation_complete row landed AFTER this implement run
+  // started. Per-task scoping (the previous behaviour) refused every
+  // re-implement on a task that had ever been finalised before.
+  const alreadyApproved = db
+    .select({ id: auditLog.id })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.taskId, taskId),
+        eq(auditLog.action, "task.implementation_complete"),
+        gt(auditLog.ts, run.startedAt),
+      ),
+    )
+    .limit(1)
+    .get();
+  if (alreadyApproved) {
+    return {
+      ok: true,
+      alreadyApproved: true,
+      message: "implementation already finalised",
+    };
   }
 
   audit({
