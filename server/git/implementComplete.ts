@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import path from "node:path";
 import { promisify } from "node:util";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/server/db/client";
@@ -162,8 +163,78 @@ export async function implementComplete(
     }
   }
 
-  // Collect commits for the Jira comment.
+  // Collect commits for the Jira comment + PR description.
   const commits = await getCommitsSinceMain(wt?.path);
+
+  // ─── Step 1c: rewrite the PR description with the implementation
+  //              ship-note ─────────────────────────────────────────────
+  // The PR description today is whatever `approveAndPr` set during the
+  // planning stage (bullets pointing at brainstorm/plan/review docs).
+  // After implementation lands, that body is stale — reviewers reach
+  // for the description and see "review the planning docs" instead of
+  // "here's what shipped." Rewrite it to match the Jira "Implementation
+  // complete" comment exactly (same shared renderer in
+  // server/jira/shipNote.ts). See:
+  //   docs/plans/2026-05-05-feat-implementation-handoff-improvements-plan.md
+  //
+  // Best-effort: a `gh pr edit` failure does NOT block the Jira comment
+  // (Step 2) or the lane move (Step 4). The Jira comment + PR commits
+  // are the load-bearing handoff; the description rewrite is presentation
+  // polish. Differs from Step 2's hard-fail behaviour because Step 2's
+  // failure would leave QA with no notification at all.
+  //
+  // Idempotency: `hasPriorAudit("pr.description_updated")` short-circuits
+  // re-runs of `implementComplete` so we don't thrash GitHub on retry.
+  if (wt?.path && !hasPriorAudit(taskId, "pr.description_updated")) {
+    try {
+      const { buildImplementationShipNote, extractShipNoteSections } =
+        await import("@/server/jira/shipNote");
+      const { currentCycleNumber } = await import("@/server/lib/taskCycle");
+      const implementationMarkdown = await getImplementationMarkdown(taskId);
+      const sections = extractShipNoteSections(implementationMarkdown ?? "");
+      const shipNote = buildImplementationShipNote({
+        jiraKey: task.jiraKey,
+        title: task.title,
+        prUrl: pr.prUrl,
+        branch: pr.branch,
+        commits,
+        sections,
+        cycleNumber: currentCycleNumber(taskId),
+      });
+
+      const { writeFile, unlink } = await import("node:fs/promises");
+      const { tmpdir } = await import("node:os");
+      const tmpPath = path.join(tmpdir(), `aiops-pr-body-${runId}.md`);
+      await writeFile(tmpPath, shipNote.markdown, "utf8");
+      try {
+        await exec(
+          "gh",
+          ["pr", "edit", pr.branch, "--body-file", tmpPath],
+          { cwd: wt.path },
+        );
+        audit({
+          action: "pr.description_updated",
+          taskId,
+          runId,
+          payload: {
+            branch: pr.branch,
+            prUrl: pr.prUrl,
+            sectionsComplete: sections.complete,
+          },
+        });
+      } finally {
+        await unlink(tmpPath).catch(() => {});
+      }
+    } catch (err) {
+      warnings.push(`gh pr edit body failed: ${(err as Error).message}`);
+      audit({
+        action: "pr.description_update_failed",
+        taskId,
+        runId,
+        payload: { error: (err as Error).message },
+      });
+    }
+  }
 
   // ─── Step 2: Jira implementation comment ─────────────────────────────
   // QA-fix branch: when the task is mid-QA-fix-cycle, post the QA-fix-
@@ -179,6 +250,8 @@ export async function implementComplete(
       runId,
       taskId,
       prUrl: pr.prUrl,
+      branch: pr.branch,
+      commits,
     });
     // postQaFixComment writes its own audit row (jira.qa_fix_comment_*).
     // jiraCommentId stays null in the return — the QA-fix audit row is
@@ -199,6 +272,7 @@ export async function implementComplete(
           prUrl: pr.prUrl,
           jiraKey: task.jiraKey,
           title: task.title,
+          branch: pr.branch,
           commits,
           implementationMarkdown,
         });
