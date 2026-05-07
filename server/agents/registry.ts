@@ -506,16 +506,62 @@ Do NOT use NEEDS_INPUT for:
 When the implementation is complete:
 1. Run \`git status\` to verify your changes are present in the working
    tree (uncommitted is correct — server will commit them).
-2. Write \`docs/implementation/${ctx.jiraKey}-implementation.md\` with:
-   - One short paragraph of what changed.
-   - Bullet list of files touched and why (since there are no commits
-     for the reviewer to scan, the file-by-file summary is important).
-   - "Manual verification" section: what the human should check before
-     undrafting the PR.
+2. Write \`docs/implementation/${ctx.jiraKey}-implementation.md\` with
+   these **four required h2 sections, in order**. The server parses
+   them at Approve Implementation time and posts both a Jira comment
+   and the GitHub PR description from this file — QA reads this as
+   their source of truth for what to test.
+
+   \`\`\`markdown
+   ## Summary
+
+   One paragraph in plain language: what got built, in user / product
+   terms (not "I edited foo.ts"). Should make sense to a PM reading
+   the Jira ticket.
+
+   ## User-visible changes
+
+   Bulleted list — each bullet is a thing the operator or end-user
+   sees differently after this PR lands. New buttons, changed copy,
+   different toasts, behavioural shifts. Empty list (\`_None — pure
+   refactor / internal change._\`) if there are no user-visible
+   changes.
+
+   ## Risk areas
+
+   Bulleted list — files / flows / integrations that could regress,
+   ranked highest-blast-radius first. Reference specific paths
+   (\`server/git/approve.ts\`, \`/api/tasks/[id]/approve\`).
+   You just touched the code; QA needs your read on where it could
+   break.
+
+   ## Test Plan
+
+   Bulleted list — concrete verification scenarios written as
+   imperative steps a tester can follow. One bullet per acceptance
+   criterion from the Plan, plus any edge case you found while
+   building. Examples:
+
+   - "Take a card to \`done\`. Click Run → Brainstorm. Verify the
+     cascade reaches \`review\` without errors."
+   - "Trigger 429 from the chat endpoint (mash Send 25 times in a
+     minute); verify the error toast surfaces and the textarea
+     stays usable for retry."
+
+   This section is the QA contract. Be specific.
+   \`\`\`
+
+   Optional sections (include only when they add real signal):
+   \`## Files Touched\`, \`## Out of scope\`, \`## Migration notes\`,
+   \`## Rollback\`. Any other headings will be dropped from the
+   rendered handoff (the server only ships recognised sections to
+   Jira / the PR description).
+
 3. Your final message should summarise the work briefly. The server
    will automatically:
      - stage everything, commit with a single message, push
-     - post a Jira comment with the file list + summary
+     - rewrite the GitHub PR description with your four sections
+     - post a Jira comment with the same content
      - transition the Jira ticket to "Code Review"
 
 ## Rules
