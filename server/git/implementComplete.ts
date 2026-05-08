@@ -347,7 +347,7 @@ export async function implementComplete(
     }
   }
 
-  // ─── Step 4: move task lane to 'done' ────────────────────────────────
+  // ─── Step 4: move task lane to 'test' (or 'done' on QA-fix cycles) ───
   // Wrap lane update + cycle-close audit in a single transaction. They
   // were previously two sequential statements — a crash between them
   // left lane=done with no `task.implementation_complete` audit row,
@@ -355,10 +355,20 @@ export async function implementComplete(
   // cycle; `awaitingImplementationApproval` cycle-scoped predicate
   // would mis-classify a finished task as still awaiting).
   // (Deepen-plan finding: data-integrity SEV-2.)
+  //
+  // QA-fix cycles skip the test lane and land directly on `done` — the
+  // test lane already ran and produced its verdict on the first cycle.
+  // Re-running it after a QA-driven fix would re-test the same suite
+  // against new code, but the QA finding is the human-driven signal we
+  // already trust; an automated re-test isn't more authoritative.
+  // (Test-fix cycles, when added in Phase 5, will use the same skip
+  // path via isTaskInTestFixCycle.)
+  const skipTestLane = inQaFixCycle;
+  const nextLane: "test" | "done" = skipTestLane ? "done" : "test";
   try {
     db.transaction((tx) => {
       tx.update(tasks)
-        .set({ currentLane: "done", updatedAt: new Date() })
+        .set({ currentLane: nextLane, updatedAt: new Date() })
         .where(eq(tasks.id, taskId))
         .run();
       tx.insert(auditLog)
@@ -370,6 +380,7 @@ export async function implementComplete(
             pushed,
             commits: commits.length,
             transitioned,
+            nextLane,
           }),
         })
         .run();
@@ -380,6 +391,32 @@ export async function implementComplete(
       failedAt: "lane_to_done",
       error: `lane update failed: ${(err as Error).message}`,
     };
+  }
+
+  // ─── Step 5: kick off the Playwright run on the test lane ───────────
+  // Cycle-1 path only — for QA-fix cycles we already wrote 'done' above.
+  // Best-effort: a startRun failure does not roll back the lane
+  // (Approve Implementation already succeeded; the operator can
+  // manually start the test run from the card if needed).
+  if (!skipTestLane) {
+    try {
+      const { startRun } = await import("@/server/worker/startRun");
+      await startRun({
+        taskId,
+        lane: "test",
+        agentId: "test:playwright",
+        initiator: { kind: "auto_advance" },
+        bypassIdempotency: true,
+      });
+    } catch (err) {
+      warnings.push(`test:playwright start failed: ${(err as Error).message}`);
+      audit({
+        action: "test.start_failed",
+        taskId,
+        runId,
+        payload: { error: (err as Error).message },
+      });
+    }
   }
 
   return {

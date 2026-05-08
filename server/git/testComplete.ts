@@ -278,7 +278,7 @@ export function parseTestArtifact(markdown: string): ParsedTestArtifact {
   const fm: Record<string, string> = {};
   let inFrontmatter = false;
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    const line = lines[i] ?? "";
     if (i === 0 && line.trim() === "---") {
       inFrontmatter = true;
       continue;
@@ -288,7 +288,9 @@ export function parseTestArtifact(markdown: string): ParsedTestArtifact {
     }
     if (inFrontmatter) {
       const m = line.match(/^([a-zA-Z_-]+):\s*(.*)$/);
-      if (m) fm[m[1].toLowerCase()] = m[2].trim();
+      if (m && m[1] && m[2] !== undefined) {
+        fm[m[1].toLowerCase()] = m[2].trim();
+      }
     }
   }
 
@@ -306,14 +308,15 @@ export function parseTestArtifact(markdown: string): ParsedTestArtifact {
   if (verdict === "FAIL") {
     let inFailingSection = false;
     for (const line of lines) {
-      if (/^##\s+Failing/i.test(line)) {
+      const l = line ?? "";
+      if (/^##\s+Failing/i.test(l)) {
         inFailingSection = true;
         continue;
       }
-      if (inFailingSection && /^##\s/.test(line)) break;
+      if (inFailingSection && /^##\s/.test(l)) break;
       if (inFailingSection) {
-        const m = line.match(/^[-*]\s+(.+)$/);
-        if (m) failingSpecs.push(m[1].trim());
+        const m = l.match(/^[-*]\s+(.+)$/);
+        if (m && m[1]) failingSpecs.push(m[1].trim());
       }
     }
   }
