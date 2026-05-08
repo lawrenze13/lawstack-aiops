@@ -41,9 +41,35 @@ export type SpawnAgentParams = {
    * blow past the kill cap while the stored DB total is already higher.
    */
   initialCumulativeCostUsd?: number;
+  /**
+   * If set, this spawn waits in an in-process queue keyed by the string
+   * before forking the child. Subsequent spawns with the same key wait
+   * for this child to exit before starting. Used by `test:playwright`
+   * (key `test:playwright:global`) to prevent two simultaneous Playwright
+   * runs from colliding on port 3000 / browsers / `playwright-report/`
+   * dirs.
+   *
+   * The lock holds from before the spawn until the child process closes
+   * (exit handler resolves it). Subsequent steps in `finalize` —
+   * persistArtifacts, testComplete, autoAdvance — run AFTER the lock is
+   * released, so they can overlap with the next test's startup. That's
+   * fine because they touch different worktrees.
+   */
+  serializeKey?: string;
 };
 
 const KILL_GRACE_MS = 5000;
+
+// In-process serialisation queue. spawnAgent({ serializeKey: K }) blocks
+// until the prior holder of K's child has exited. Cleared automatically
+// when the chain settles.
+//
+// Pattern mirrors `withRunLock` from chatMutex.ts but inlined here so we
+// can attach the release to the child-exit handler instead of awaiting
+// a wrapper function — spawnAgent's body is fire-and-forget and rebuilds
+// the spawn synchronously, so a then-able wrapper would force a major
+// refactor.
+const _serializeChains: Map<string, Promise<void>> = new Map();
 
 /**
  * Fork a `claude` subprocess for one lane run. Streams stream-json events to
@@ -51,8 +77,40 @@ const KILL_GRACE_MS = 5000;
  *
  * Returns once the spawn has been registered. The child runs to completion
  * in the background; observers attach via SSE on /api/runs/:id/stream.
+ *
+ * When `p.serializeKey` is set, the spawn is deferred behind any prior
+ * spawn carrying the same key. The lock releases when this run's child
+ * exits — finalize() and downstream side-effects run AFTER the lock is
+ * gone so the queue depth tracks process lifetime, not full lane lifetime.
  */
 export function spawnAgent(p: SpawnAgentParams): void {
+  if (p.serializeKey) {
+    const key = p.serializeKey;
+    const prior = _serializeChains.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const mine = new Promise<void>((r) => { release = r; });
+    const next = prior.then(() => mine);
+    _serializeChains.set(key, next);
+    // Spawn after the prior holder's child exits. The release fn is
+    // invoked from spawnAgentInner's child.on("exit") handler.
+    void prior.then(() => {
+      try {
+        spawnAgentInner(p, () => {
+          release();
+          if (_serializeChains.get(key) === next) _serializeChains.delete(key);
+        });
+      } catch (err) {
+        release(); // ensure the chain doesn't deadlock on a setup error
+        if (_serializeChains.get(key) === next) _serializeChains.delete(key);
+        throw err;
+      }
+    });
+    return;
+  }
+  spawnAgentInner(p);
+}
+
+function spawnAgentInner(p: SpawnAgentParams, onChildExit?: () => void): void {
   const args: string[] = [
     "-oL",
     "-eL",
@@ -306,12 +364,33 @@ export function spawnAgent(p: SpawnAgentParams): void {
     });
   }
 
+  let exitChainReleased = false;
+  const releaseExitChain = () => {
+    if (exitChainReleased) return;
+    exitChainReleased = true;
+    try {
+      onChildExit?.();
+    } catch {
+      // ignore
+    }
+  };
   child.on("error", (err) => {
     persistAndEmit("server", { kind: "spawn_error", error: String(err) });
+    // If spawn failed so badly that `exit` never fires (e.g. ENOENT on
+    // `stdbuf`), still release the serialise-chain lock so subsequent
+    // queued spawns aren't deadlocked.
+    releaseExitChain();
     void finalize(p.runId, "failed", `spawn_error: ${String(err)}`);
   });
 
   child.on("exit", (code, signal) => {
+    // Release the serialise-chain lock the moment the process closes,
+    // before finalize runs. The next queued spawn can start its own
+    // worktree work in parallel with our finalize side-effects (which
+    // touch a different worktree). Idempotent — the error handler may
+    // have already released the lock if spawn never produced a child.
+    releaseExitChain();
+
     persistAndEmit("server", { kind: "exit", code, signal });
     let status = decideExitStatus(code, signal, lastStopReason);
     // NEEDS_INPUT: agent signalled a clarification request. Override any
@@ -375,6 +454,12 @@ async function finalize(
     // last known-good state. The PR still exists + the approved
     // artifacts are intact; only the in-flight implementation work
     // was aborted.
+    //
+    // Test lane is different: the implementation is already pushed and
+    // Jira is on Code Review by the time the test run kicks off, so we
+    // do NOT roll back to "implement" — that would imply re-doing the
+    // approved-and-pushed work. Instead, hold on "test" with no
+    // current_run_id so the operator can re-run, skip, or fix.
     const didNotComplete =
       status === "stopped" ||
       status === "failed" ||
@@ -396,6 +481,20 @@ async function finalize(
           taskId: row.taskId,
           runId,
           payload: { from: "implement", to: "pr", reason: status },
+        });
+      } else if (row?.lane === "test") {
+        // Hold on test, clear currentRunId so UI re-enables the Run
+        // button. The earlier successful implementation push is
+        // untouched; this just abandoned the verification attempt.
+        db.update(tasks)
+          .set({ currentRunId: null, updatedAt: new Date() })
+          .where(eq(tasks.id, row.taskId))
+          .run();
+        audit({
+          action: "task.test_run_aborted",
+          taskId: row.taskId,
+          runId,
+          payload: { reason: status },
         });
       }
     }

@@ -325,6 +325,12 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
     costWarnUsd: agent.costWarnUsd,
     costKillUsd: agent.costKillUsd,
     permissionMode: agent.permissionMode,
+    // Serialise Playwright runs across this aiops instance — only one
+    // `test:playwright` agent can fork at a time. Prevents port 3000 +
+    // browser-cache + `playwright-report/` collisions when two tasks
+    // hit Approve Implementation back-to-back.
+    serializeKey:
+      agent.id === "test:playwright" ? "test:playwright:global" : undefined,
   });
 
   return { runId, lane: params.lane, agentId: agent.id };

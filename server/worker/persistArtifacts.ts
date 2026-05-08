@@ -16,6 +16,7 @@ type ArtifactKind =
   | "plan"
   | "review"
   | "implementation"
+  | "test"
   | "research"
   | "security-review"
   | "perf-review"
@@ -28,6 +29,10 @@ const LANE_TO_KIND: Record<string, { kind: ArtifactKind; dir: string }> = {
   plan: { kind: "plan", dir: "docs/plans" },
   review: { kind: "review", dir: "docs/reviews" },
   implement: { kind: "implementation", dir: "docs/implementation" },
+  // Playwright run output. The agent writes a single file with a
+  // verdict (PASS|FAIL) + counts in the YAML frontmatter; testComplete
+  // reads it to drive the lane-to-done move and Jira comment.
+  test: { kind: "test", dir: "docs/tests" },
 };
 
 // Downstream order: re-running X makes these stale. Only the 4 core kinds
@@ -37,6 +42,9 @@ const DOWNSTREAM: Record<string, ArtifactKind[]> = {
   plan: ["review"],
   review: [],
   implementation: [],
+  // A test run never produces upstream-staleness; it's the verification
+  // step, not an input to anything.
+  test: [],
   research: [],
   "security-review": [],
   "perf-review": [],
