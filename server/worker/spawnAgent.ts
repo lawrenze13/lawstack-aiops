@@ -550,6 +550,12 @@ async function finalize(
     // approve-implementation) which runs the 5-step finalisation.
     // We just record a signal audit row here so the UI can show the
     // button, and leave the task on the 'implement' lane.
+    //
+    // Test-lane completion is the OPPOSITE — fully automated. As soon
+    // as the artifact lands and decideExitStatus returns 'completed',
+    // we run testComplete to copy reports out of the worktree, post
+    // the Jira pass/fail comment, optionally transition the ticket,
+    // and move the lane to `done` on PASS (or hold on `test` on FAIL).
     try {
       const run = db
         .select({ taskId: runs.taskId, lane: runs.lane })
@@ -562,10 +568,24 @@ async function finalize(
           taskId: run.taskId,
           runId,
         });
+      } else if (run?.lane === "test") {
+        try {
+          const { testComplete } = await import("@/server/git/testComplete");
+          await testComplete(runId, run.taskId);
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error("[spawnAgent] testComplete failed", { runId, err });
+          audit({
+            action: "test.complete_failed",
+            taskId: run.taskId,
+            runId,
+            payload: { error: String((err as Error).message ?? err) },
+          });
+        }
       }
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.error("[spawnAgent] implement awaiting-approval audit failed", { runId, err });
+      console.error("[spawnAgent] post-completion handler failed", { runId, err });
     }
 
     try {

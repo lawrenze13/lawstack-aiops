@@ -63,6 +63,15 @@ export const configSchema = z.object({
   DATABASE_URL: z.string().min(1).default("./data/app.db"),
   WORKTREE_ROOT: z.string().min(1).default("/var/aiops/worktrees"),
   BASE_REPO: optionalStr(z.string().min(1)),
+  // Where the test lane copies Playwright HTML reports + traces + the
+  // raw test-results.json after each run. Survives worktree GC. Empty
+  // string disables persistence (reports stay in the worktree only,
+  // pruned with it).
+  TEST_REPORTS_ROOT: z.string().min(1).default("/var/aiops/test-reports"),
+  // Optional Jira workflow status to transition to when the test lane
+  // PASSes. Blank disables the transition (the standard case — most
+  // projects don't have a dedicated post-test column).
+  JIRA_TEST_PASS_TRANSITION: optionalStr(z.string().min(1)),
   PREVIEW_DEV_PATH: optionalStr(z.string().min(1)),
   PREVIEW_DEV_URL: optionalStr(z.string().url()),
   // Accept a real boolean from the wizard UI or the string "true"/"1" from

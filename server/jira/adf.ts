@@ -298,6 +298,104 @@ export function implementCommentDoc(input: ImplementCommentInput): AdfDocument {
   }).adf;
 }
 
+export type TestCompleteCommentInput = {
+  jiraKey: string;
+  title: string;
+  prUrl: string;
+  branch: string;
+  verdict: "PASS" | "FAIL" | "SKIPPED";
+  passed: number;
+  failed: number;
+  /** Optional path / URL where the persisted Playwright report lives. */
+  reportsLink?: string;
+  /**
+   * Failing-spec details extracted from the test artifact. Empty on PASS.
+   * Each entry is one line — e.g. "spec.ts › auth › login redirects".
+   * Capped to ~10 entries by the caller; remaining failures are linked
+   * to via `reportsLink`.
+   */
+  failingSpecs?: string[];
+};
+
+/**
+ * Jira comment posted by testComplete after the Playwright run finishes.
+ * Symmetric with implementCommentDoc: same header + branch + PR link
+ * scaffolding, but the body summarises the test outcome instead of the
+ * implementation diff.
+ *
+ * Three variants:
+ *   - PASS: short "passed N/N" line + reports link.
+ *   - FAIL: failing-spec list (top 10) + reports link + nudge to use
+ *     "Fix from Tests" or "Re-run".
+ *   - SKIPPED: one-line explanation that the project doesn't have
+ *     Playwright configured. Operator can wire it up.
+ */
+export function testCompleteCommentDoc(input: TestCompleteCommentInput): AdfDocument {
+  const total = input.passed + input.failed;
+  const headerIcon =
+    input.verdict === "PASS" ? "✅" : input.verdict === "FAIL" ? "❌" : "⏭️";
+  const headerText =
+    input.verdict === "PASS"
+      ? `Playwright passed (${input.passed}/${total})`
+      : input.verdict === "FAIL"
+        ? `Playwright failed (${input.failed}/${total} specs)`
+        : "Playwright skipped";
+
+  const blocks: AdfBlockNode[] = [
+    heading(2, `${headerIcon} ${headerText}`),
+    paragraph(
+      strong("Branch: "),
+      code(input.branch),
+      "  ",
+      strong("PR: "),
+      link(input.prUrl, input.prUrl),
+    ),
+  ];
+
+  if (input.verdict === "FAIL" && input.failingSpecs && input.failingSpecs.length > 0) {
+    blocks.push(heading(3, "Failing specs"));
+    blocks.push(
+      bulletList(input.failingSpecs.slice(0, 10).map((s) => paragraph(code(s)))),
+    );
+    if (input.failingSpecs.length > 10) {
+      blocks.push(
+        paragraph(
+          `…and ${input.failingSpecs.length - 10} more. Full results in the persisted report.`,
+        ),
+      );
+    }
+    blocks.push(
+      paragraph(
+        "Use the ",
+        strong("Fix from Tests"),
+        " button on the card to re-flow this through brainstorm → plan → review → implement with the failures injected as findings, or ",
+        strong("Re-run Tests"),
+        " to retry the same suite (e.g. for a flaky test).",
+      ),
+    );
+  }
+
+  if (input.verdict === "SKIPPED") {
+    blocks.push(
+      paragraph(
+        "The managed repo does not have Playwright configured (missing ",
+        code("playwright.config"),
+        " or ",
+        code("@playwright/test"),
+        " in package.json). The card has been auto-advanced past the test lane.",
+      ),
+    );
+  }
+
+  if (input.reportsLink) {
+    blocks.push(
+      paragraph(strong("Full report: "), link(input.reportsLink, input.reportsLink)),
+    );
+  }
+
+  return doc(blocks);
+}
+
 /** Best-effort plain-text extraction from Jira's nested ADF descriptions. */
 export function adfToPlainText(node: unknown): string {
   if (!node || typeof node !== "object") return "";

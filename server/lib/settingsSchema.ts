@@ -181,6 +181,14 @@ export const SETTINGS: SettingSection[] = [
         kind: "text",
         placeholder: "Code Review",
       },
+      {
+        key: "JIRA_TEST_PASS_TRANSITION",
+        label: "Status on test pass (optional)",
+        description:
+          "Jira status to transition to when the test lane's Playwright run passes. Leave blank to skip the transition (most projects don't need this).",
+        kind: "text",
+        placeholder: "QA Passed",
+      },
     ],
   },
   {
@@ -211,6 +219,14 @@ export const SETTINGS: SettingSection[] = [
           "Directory where per-task worktrees live. Each task gets a UUID subdirectory.",
         kind: "text",
         placeholder: "/var/aiops/worktrees",
+      },
+      {
+        key: "TEST_REPORTS_ROOT",
+        label: "Test reports root",
+        description:
+          "Where the test lane copies Playwright HTML reports + traces after each run. Survives worktree cleanup so old reports remain accessible.",
+        kind: "text",
+        placeholder: "/var/aiops/test-reports",
       },
     ],
   },
