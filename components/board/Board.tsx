@@ -18,6 +18,7 @@ const LANES = [
   { id: "review", label: "Review" },
   { id: "pr", label: "PR" },
   { id: "implement", label: "Implement" },
+  { id: "test", label: "Test" },
   { id: "done", label: "Done" },
 ] as const;
 type LaneId = (typeof LANES)[number]["id"];
@@ -63,6 +64,7 @@ export function Board({ initialTasks, scope }: Props) {
       review: [],
       pr: [],
       implement: [],
+      test: [],
       done: [],
     };
     for (const t of tasks) out[t.currentLane].push(t);

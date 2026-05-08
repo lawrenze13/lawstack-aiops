@@ -158,7 +158,7 @@ export function throughputByLane(scope: ViewerScope) {
     .all();
 
   // Bucket by lane id + day-of-week (0..6, day 0 = 6 days ago, day 6 = today).
-  const LANES = ["ticket", "branch", "brainstorm", "plan", "review", "pr", "implement", "done"] as const;
+  const LANES = ["ticket", "branch", "brainstorm", "plan", "review", "pr", "implement", "test", "done"] as const;
   type Lane = (typeof LANES)[number];
   const byLane: Record<Lane, number[]> = Object.fromEntries(
     LANES.map((l) => [l, new Array(7).fill(0)]),

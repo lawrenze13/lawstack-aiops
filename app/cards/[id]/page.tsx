@@ -184,6 +184,7 @@ export default async function CardDetailPage({ params }: Props) {
     | "plan"
     | "review"
     | "implementation"
+    | "test"
     | "research"
     | "security-review"
     | "perf-review"

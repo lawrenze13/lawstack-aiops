@@ -7,7 +7,7 @@
 
 import { createHash } from "node:crypto";
 
-export type Lane = "brainstorm" | "plan" | "review" | "pr" | "implement";
+export type Lane = "brainstorm" | "plan" | "review" | "pr" | "implement" | "test";
 
 export type PermissionMode = "acceptEdits" | "bypassPermissions";
 

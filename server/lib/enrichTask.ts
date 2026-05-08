@@ -39,6 +39,7 @@ export function enrichTask(t: {
       | "review"
       | "pr"
       | "implement"
+      | "test"
       | "done",
     ownerId: t.ownerId,
     runStatus: (currentRun?.status ?? null) as
