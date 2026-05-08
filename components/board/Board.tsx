@@ -42,6 +42,12 @@ type Task = {
   costUsd: number;
   prState: string | null;
   prUrl: string | null;
+  /** Latest test artifact verdict for this task; null when no test
+   *  artifact exists. Drives the per-card test-result chip on the
+   *  test + done lanes. */
+  testVerdict?: "PASS" | "FAIL" | "SKIPPED" | null;
+  testPassCount?: number;
+  testFailCount?: number;
 };
 
 type Props = {
@@ -366,6 +372,16 @@ function CardStatusBadges({ task }: { task: Task }) {
       {task.prState?.startsWith("failed_at_") ? (
         <Chip color="danger" variant="soft" size="sm" className="uppercase text-[9px]">
           PR ✘
+        </Chip>
+      ) : null}
+      {task.testVerdict === "PASS" ? (
+        <Chip color="success" variant="soft" size="sm" className="uppercase text-[9px]">
+          ✓ {task.testPassCount}/{(task.testPassCount ?? 0) + (task.testFailCount ?? 0)}
+        </Chip>
+      ) : null}
+      {task.testVerdict === "FAIL" ? (
+        <Chip color="danger" variant="primary" size="sm" className="uppercase text-[9px]">
+          ✘ {task.testFailCount} failed
         </Chip>
       ) : null}
     </span>

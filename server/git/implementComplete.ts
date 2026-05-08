@@ -356,14 +356,17 @@ export async function implementComplete(
   // would mis-classify a finished task as still awaiting).
   // (Deepen-plan finding: data-integrity SEV-2.)
   //
-  // QA-fix cycles skip the test lane and land directly on `done` — the
-  // test lane already ran and produced its verdict on the first cycle.
-  // Re-running it after a QA-driven fix would re-test the same suite
-  // against new code, but the QA finding is the human-driven signal we
-  // already trust; an automated re-test isn't more authoritative.
-  // (Test-fix cycles, when added in Phase 5, will use the same skip
-  // path via isTaskInTestFixCycle.)
-  const skipTestLane = inQaFixCycle;
+  // QA-fix and test-fix cycles both skip the test lane and land
+  // directly on `done`. For QA cycles: the human QA finding is the
+  // authoritative signal, an automated re-test isn't more so. For
+  // test cycles: re-running the same Playwright suite against new
+  // code that was already shaped by its findings is just verification
+  // theatre — if the failures came from a flaky environment we'd be
+  // re-flaking, and if they came from real bugs the operator would
+  // run them locally before approving.
+  const { isTaskInTestFixCycle } = await import("@/server/lib/taskCycle");
+  const inTestFixCycle = isTaskInTestFixCycle(taskId);
+  const skipTestLane = inQaFixCycle || inTestFixCycle;
   const nextLane: "test" | "done" = skipTestLane ? "done" : "test";
   try {
     db.transaction((tx) => {

@@ -13,6 +13,10 @@ import { ApproveButton } from "@/components/card-detail/ApproveButton";
 import { AmendPlanButton } from "@/components/card-detail/AmendPlanButton";
 import { FixFromQaButton } from "@/components/card-detail/FixFromQaButton";
 import { QaCycleChip } from "@/components/card-detail/QaCycleChip";
+import { RerunTestsButton } from "@/components/card-detail/RerunTestsButton";
+import { FixFromTestsButton } from "@/components/card-detail/FixFromTestsButton";
+import { SkipTestsButton } from "@/components/card-detail/SkipTestsButton";
+import { parseTestArtifact } from "@/server/git/testComplete";
 import { ArtifactPanel } from "@/components/card-detail/ArtifactPanel";
 import { CardMainTabs } from "@/components/card-detail/CardMainTabs";
 import { DescriptionPanel } from "@/components/card-detail/DescriptionPanel";
@@ -291,6 +295,28 @@ export default async function CardDetailPage({ params }: Props) {
             currentLane={task.currentLane}
             canControl={canControl}
             runActive={allRuns.some((r) => r.status === "running")}
+          />
+          <RerunTestsButton
+            taskId={task.id}
+            currentLane={task.currentLane}
+            canControl={canControl}
+            runActive={allRuns.some((r) => r.status === "running")}
+          />
+          <FixFromTestsButton
+            taskId={task.id}
+            currentLane={task.currentLane}
+            canControl={canControl}
+            runActive={allRuns.some((r) => r.status === "running")}
+            verdict={
+              latestArtifactByKind.has("test")
+                ? parseTestArtifact(latestArtifactByKind.get("test")!.markdown).verdict
+                : null
+            }
+          />
+          <SkipTestsButton
+            taskId={task.id}
+            currentLane={task.currentLane}
+            canControl={canControl}
           />
           <ApproveButton
             taskId={task.id}

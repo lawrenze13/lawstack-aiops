@@ -218,6 +218,94 @@ export function qaFixCycleCount(taskId: string): number {
   return row?.count ?? 0;
 }
 
+// ─── Test-fix cycle helpers ─────────────────────────────────────────────
+//
+// Mirror the QA-fix shape: a "test fix" is a fix-cycle whose
+// `run.started_request` payload carries `source: "test_failure"`
+// (set by qa-fix/start when the operator clicks "Fix from Tests" on
+// the test lane). All test-fix cycles are also QA-fix cycles by the
+// `qaFixCycle: true` audit flag — the source discriminator is what
+// tells them apart.
+//
+// implementComplete reads `isTaskInTestFixCycle` to decide whether
+// the post-implement lane handoff goes to `test` (cycle 1, no
+// active fix) or `done` (active fix-cycle of either flavour) — the
+// fix-cycle path always lands on `done` regardless of source.
+
+/**
+ * True iff the brainstorm run identified by runId was started as the
+ * head of a TEST fix cycle (operator clicked Fix from Tests). Sibling
+ * to wasQaFixCycleRun; both can return true for the same run only if
+ * the audit payload is malformed — they're meant to be mutually
+ * exclusive.
+ */
+export function wasTestFixCycleRun(runId: string): boolean {
+  const row = db
+    .select({ payloadJson: auditLog.payloadJson })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.runId, runId),
+        eq(auditLog.action, "run.started_request"),
+      ),
+    )
+    .limit(1)
+    .get();
+  if (!row?.payloadJson) return false;
+  try {
+    const payload = JSON.parse(row.payloadJson) as {
+      qaFixCycle?: boolean;
+      source?: string;
+    };
+    return payload.qaFixCycle === true && payload.source === "test_failure";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True iff the task is currently mid-test-fix-cycle. Same shape as
+ * isTaskInQaFixCycle but filters the brainstorm run-start by
+ * `source === "test_failure"`. Used by:
+ *   - implementComplete: skip the `lane → test` handoff (and skip
+ *     re-running Playwright) when an in-flight test-fix cycle is
+ *     completing — the operator already saw a failure and the new
+ *     implementation is the response, not a fresh attempt.
+ *   - UI: render a "Test fix · N" chip parallel to the QA-fix chip.
+ */
+export function isTaskInTestFixCycle(taskId: string): boolean {
+  const fixStart = db
+    .select({ id: auditLog.id })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.taskId, taskId),
+        eq(auditLog.action, "run.started_request"),
+        sql`json_extract(${auditLog.payloadJson}, '$.qaFixCycle') = 1`,
+        sql`json_extract(${auditLog.payloadJson}, '$.source') = 'test_failure'`,
+      ),
+    )
+    .orderBy(desc(auditLog.id))
+    .limit(1)
+    .get();
+  if (!fixStart) return false;
+
+  const closeAfter = db
+    .select({ id: auditLog.id })
+    .from(auditLog)
+    .where(
+      and(
+        eq(auditLog.taskId, taskId),
+        eq(auditLog.action, "task.implementation_complete"),
+        sql`${auditLog.id} > ${fixStart.id}`,
+      ),
+    )
+    .limit(1)
+    .get();
+
+  return !closeAfter;
+}
+
 /**
  * ISO timestamp of the most recent `task.implementation_complete` audit
  * row for the task, or null if the task has never reached `done`. Used by
