@@ -16,12 +16,34 @@ export function enrichTask(t: {
 }) {
   const currentRun = t.currentRunId
     ? db
-        .select({ status: runs.status, costUsdMicros: runs.costUsdMicros })
+        .select({
+          status: runs.status,
+          costUsdMicros: runs.costUsdMicros,
+          agentConfigSnapshotJson: runs.agentConfigSnapshotJson,
+        })
         .from(runs)
         .where(eq(runs.id, t.currentRunId))
         .limit(1)
         .get()
     : null;
+
+  // Pull runnerType out of the snapshot so the UI can hide the cost
+  // field on script runs (always $0; visually ambiguous next to
+  // cost-killed Claude runs that also report $0). Snapshot parsing
+  // is per-card; with realistic board sizes the JSON.parse cost is
+  // negligible. Defaults to "claude" for runs predating the
+  // discriminator.
+  let runnerType: "claude" | "script" = "claude";
+  if (currentRun?.agentConfigSnapshotJson) {
+    try {
+      const snap = JSON.parse(currentRun.agentConfigSnapshotJson) as {
+        runnerType?: "claude" | "script";
+      };
+      if (snap.runnerType === "script") runnerType = "script";
+    } catch {
+      // ignore — default stays claude
+    }
+  }
   const pr = db
     .select({ state: prRecords.state, prUrl: prRecords.prUrl })
     .from(prRecords)
@@ -71,6 +93,7 @@ export function enrichTask(t: {
       | "awaiting_input"
       | null,
     costUsd: currentRun ? currentRun.costUsdMicros / 1_000_000 : 0,
+    runnerType,
     prState: pr?.state ?? null,
     prUrl: pr?.prUrl ?? null,
     testVerdict: (testParsed?.verdict ?? null) as

@@ -40,6 +40,11 @@ type Task = {
     | "awaiting_input"
     | null;
   costUsd: number;
+  /** Spawn path of the currently-active run. Script runs never burn
+   *  tokens, so the card's cost label is hidden — `$0.00` would be
+   *  visually ambiguous next to cost-killed Claude runs that also
+   *  report $0. */
+  runnerType?: "claude" | "script";
   prState: string | null;
   prUrl: string | null;
   /** Latest test artifact verdict for this task; null when no test
@@ -331,7 +336,7 @@ function DraggableCard({ task }: { task: Task }) {
         <CardStatusBadges task={task} />
       </div>
       <div className="mt-1 text-sm font-medium leading-snug">{task.title}</div>
-      {task.costUsd > 0 ? (
+      {task.costUsd > 0 && task.runnerType !== "script" ? (
         <div className="mt-1.5 text-[10px] text-[color:var(--muted)]">
           ${task.costUsd.toFixed(4)}
         </div>

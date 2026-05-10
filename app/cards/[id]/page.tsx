@@ -153,20 +153,34 @@ export default async function CardDetailPage({ params }: Props) {
     latestImplementRun.status === "completed" &&
     !implementationFinalised;
 
-  const runSummaries = allRuns.map((r) => ({
-    id: r.id,
-    lane: r.lane,
-    agentId: r.agentId,
-    status: r.status,
-    costUsd: r.costUsdMicros / 1_000_000,
-    // For finished runs, trust runs.num_turns (Claude's own final count).
-    // For in-flight runs, use the live message count.
-    numTurns:
-      r.status === "running"
-        ? (assistantCountByRun.get(r.id) ?? 0)
-        : r.numTurns || (assistantCountByRun.get(r.id) ?? 0),
-    startedAt: new Date(r.startedAt).getTime(),
-  }));
+  const runSummaries = allRuns.map((r) => {
+    // Pull runnerType out of the per-run agent snapshot so the UI can
+    // hide the cost label on script runs without an extra DB column.
+    let runnerType: "claude" | "script" = "claude";
+    try {
+      const snap = JSON.parse(r.agentConfigSnapshotJson) as {
+        runnerType?: "claude" | "script";
+      };
+      if (snap.runnerType === "script") runnerType = "script";
+    } catch {
+      // ignore — default stays claude
+    }
+    return {
+      id: r.id,
+      lane: r.lane,
+      agentId: r.agentId,
+      status: r.status,
+      costUsd: r.costUsdMicros / 1_000_000,
+      // For finished runs, trust runs.num_turns (Claude's own final count).
+      // For in-flight runs, use the live message count.
+      numTurns:
+        r.status === "running"
+          ? (assistantCountByRun.get(r.id) ?? 0)
+          : r.numTurns || (assistantCountByRun.get(r.id) ?? 0),
+      startedAt: new Date(r.startedAt).getTime(),
+      runnerType,
+    };
+  });
 
   // Latest artifact per kind for this task; used both for display and the
   // Approve gate (which requires brainstorm + plan present, non-stale).
