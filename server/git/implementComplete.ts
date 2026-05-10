@@ -471,7 +471,7 @@ async function getCommitsSinceMain(
   try {
     const { stdout } = await exec(
       "git",
-      ["log", "origin/main..HEAD", "--pretty=%h%x09%s"],
+      ["log", `origin/${env.BASE_BRANCH}..HEAD`, "--pretty=%h%x09%s"],
       { cwd: worktreePath },
     );
     const lines = stdout.trim().split("\n").filter(Boolean);

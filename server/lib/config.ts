@@ -63,6 +63,13 @@ export const configSchema = z.object({
   DATABASE_URL: z.string().min(1).default("./data/app.db"),
   WORKTREE_ROOT: z.string().min(1).default("/var/aiops/worktrees"),
   BASE_REPO: optionalStr(z.string().min(1)),
+  // Branch new per-task worktrees fork off from. Set this when the
+  // canonical line lives somewhere other than `main` — e.g. before
+  // merging a long-lived feature branch (Playwright test suite,
+  // infra rework) into main, point aiops at it temporarily so
+  // worktrees inherit the work-in-progress code without flipping
+  // the managed repo's default branch.
+  BASE_BRANCH: z.string().min(1).default("main"),
   // Where the test lane copies Playwright HTML reports + traces + the
   // raw test-results.json after each run. Survives worktree GC. Empty
   // string disables persistence (reports stay in the worktree only,

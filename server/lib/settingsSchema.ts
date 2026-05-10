@@ -213,6 +213,14 @@ export const SETTINGS: SettingSection[] = [
         required: true,
       },
       {
+        key: "BASE_BRANCH",
+        label: "Base branch",
+        description:
+          "Branch new per-task worktrees fork off from. Defaults to `main`. Set to a long-lived feature branch (e.g. `marben-qa-test`) when the work-in-progress canonical line lives elsewhere. PRs target this branch too.",
+        kind: "text",
+        placeholder: "main",
+      },
+      {
         key: "WORKTREE_ROOT",
         label: "Worktree root",
         description:

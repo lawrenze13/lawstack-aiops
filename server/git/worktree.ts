@@ -63,9 +63,12 @@ export async function ensureWorktree(taskId: string, jiraKey: string): Promise<W
 
   await preflightBranch(jiraKey, branch);
 
-  // Refresh main + ensure the worktree root exists.
+  // Refresh the configured base branch + ensure the worktree root
+  // exists. BASE_BRANCH defaults to `main`; operators set it to a
+  // long-lived feature branch (e.g. one carrying the Playwright suite
+  // before it lands on main) when the canonical line lives elsewhere.
   await mkdir(env.WORKTREE_ROOT, { recursive: true });
-  await exec("git", ["fetch", "origin", "main"], { cwd: env.BASE_REPO });
+  await exec("git", ["fetch", "origin", env.BASE_BRANCH], { cwd: env.BASE_REPO });
 
   // Clean any stale local branch + worktree pointing at the same path.
   // Failures here are non-fatal — these are best-effort cleanup.
@@ -74,9 +77,11 @@ export async function ensureWorktree(taskId: string, jiraKey: string): Promise<W
   );
   await exec("git", ["branch", "-D", branch], { cwd: env.BASE_REPO }).catch(() => {});
 
-  await exec("git", ["worktree", "add", "-B", branch, wtPath, "origin/main"], {
-    cwd: env.BASE_REPO,
-  });
+  await exec(
+    "git",
+    ["worktree", "add", "-B", branch, wtPath, `origin/${env.BASE_BRANCH}`],
+    { cwd: env.BASE_REPO },
+  );
 
   // Standard layout — agents write to these paths.
   await mkdir(path.join(wtPath, "docs/brainstorms"), { recursive: true });

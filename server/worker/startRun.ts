@@ -458,7 +458,7 @@ async function getRecentCommits(worktreePath: string): Promise<string | undefine
   try {
     const { stdout } = await exec(
       "git",
-      ["log", "-20", "--oneline", "--no-decorate", "origin/main"],
+      ["log", "-20", "--oneline", "--no-decorate", `origin/${env.BASE_BRANCH}`],
       { cwd: worktreePath },
     );
     const out = stdout.trim();
