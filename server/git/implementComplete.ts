@@ -12,6 +12,7 @@ import {
 } from "@/server/jira/client";
 import { implementCommentDoc } from "@/server/jira/adf";
 import { robustPush } from "@/server/git/push";
+import { ghEnv } from "@/server/git/approve";
 
 const exec = promisify(execFile);
 
@@ -142,7 +143,7 @@ export async function implementComplete(
   // no-op that returns 0.
   if (wt?.path && !hasPriorAudit(taskId, "pr.marked_ready")) {
     try {
-      await exec("gh", ["pr", "ready", pr.branch], { cwd: wt.path });
+      await exec("gh", ["pr", "ready", pr.branch], { cwd: wt.path, env: ghEnv() });
       audit({
         action: "pr.marked_ready",
         taskId,
@@ -202,15 +203,32 @@ export async function implementComplete(
         cycleNumber: currentCycleNumber(taskId),
       });
 
+      // Use REST PATCH /repos/{owner}/{repo}/pulls/{number} instead of
+      // `gh pr edit --body-file`. The latter walks
+      // `repository.pullRequests.nodes.*.projectCards` via GraphQL on every
+      // edit and hard-errors against repos with classic Projects attached
+      // ("Projects (classic) is being deprecated"). REST PATCH only updates
+      // the body field — no project traversal — and is unaffected.
+      const target = parsePrUrl(pr.prUrl);
+      if (!target) {
+        throw new Error(`unrecognised PR URL shape: ${pr.prUrl}`);
+      }
       const { writeFile, unlink } = await import("node:fs/promises");
       const { tmpdir } = await import("node:os");
-      const tmpPath = path.join(tmpdir(), `aiops-pr-body-${runId}.md`);
-      await writeFile(tmpPath, shipNote.markdown, "utf8");
+      const tmpPath = path.join(tmpdir(), `aiops-pr-body-${runId}.json`);
+      await writeFile(tmpPath, JSON.stringify({ body: shipNote.markdown }), "utf8");
       try {
         await exec(
           "gh",
-          ["pr", "edit", pr.branch, "--body-file", tmpPath],
-          { cwd: wt.path },
+          [
+            "api",
+            "--method",
+            "PATCH",
+            `repos/${target.owner}/${target.repo}/pulls/${target.number}`,
+            "--input",
+            tmpPath,
+          ],
+          { cwd: wt.path, env: ghEnv() },
         );
         audit({
           action: "pr.description_updated",
@@ -482,6 +500,14 @@ async function getCommitsSinceMain(
   } catch {
     return [];
   }
+}
+
+function parsePrUrl(
+  url: string,
+): { owner: string; repo: string; number: string } | null {
+  const m = url.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
+  if (!m) return null;
+  return { owner: m[1]!, repo: m[2]!, number: m[3]! };
 }
 
 async function getImplementationMarkdown(taskId: string): Promise<string | undefined> {
