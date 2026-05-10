@@ -251,19 +251,27 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
     interactive: params.interactive ?? false,
   };
 
-  let prompt = params.overridePrompt
-    ? params.overridePrompt
-    : isFixCycleStart
-      ? buildQaFixBrainstormPrompt(promptContext, qaFindings, qaCycleNumberForAudit)
-      : params.amendFromReview
-        ? buildAmendPlanPrompt(promptContext)
-        : agent.buildPrompt(promptContext);
+  // Script-runner agents skip prompt building entirely — there's no
+  // Claude subprocess to feed. The script reads its inputs from
+  // positional args + env vars via spawnScriptInner.
+  const isScriptAgent = agent.runnerType === "script";
+
+  let prompt = isScriptAgent
+    ? ""
+    : params.overridePrompt
+      ? params.overridePrompt
+      : isFixCycleStart
+        ? buildQaFixBrainstormPrompt(promptContext, qaFindings, qaCycleNumberForAudit)
+        : params.amendFromReview
+          ? buildAmendPlanPrompt(promptContext)
+          : agent.buildPrompt(promptContext);
 
   // Append any user-supplied steering text to the tail of the prompt so
   // it reads as an overlay on the default contract rather than replacing
   // it. `overridePrompt` (chat-resume path) already carries the full
-  // operator message — skip the append there.
-  if (!params.overridePrompt && params.additionalPrompt?.trim()) {
+  // operator message — skip the append there. Script agents have no
+  // prompt to append to; additionalPrompt is silently ignored on them.
+  if (!isScriptAgent && !params.overridePrompt && params.additionalPrompt?.trim()) {
     prompt +=
       "\n\n## Extra instructions from the operator\n\n" +
       params.additionalPrompt.trim();
@@ -375,6 +383,14 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
     // hit Approve Implementation back-to-back.
     serializeKey:
       agent.id === "test:playwright" ? "test:playwright:global" : undefined,
+    // Runner discriminator + script config. Claude is the default —
+    // script agents (today only test:playwright after Phase 4) skip
+    // the LLM and fork a plain Node script.
+    runnerType: agent.runnerType ?? "claude",
+    scriptPath: agent.script,
+    scriptArgs: isScriptAgent
+      ? [task.jiraKey, worktree.branch ?? ""]
+      : undefined,
   });
 
   return { runId, lane: params.lane, agentId: agent.id };

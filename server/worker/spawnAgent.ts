@@ -56,6 +56,25 @@ export type SpawnAgentParams = {
    * fine because they touch different worktrees.
    */
   serializeKey?: string;
+  /**
+   * Discriminator for the spawn path. `"claude"` (default) goes through
+   * the existing `claude -p` pipeline. `"script"` forks a plain Node /
+   * shell script — same observability stack (runRegistry, bus, finalize)
+   * but no LLM, no cost meter, no prompt. Used by `test:playwright` to
+   * shed the token cost of orchestrating a deterministic shell command.
+   */
+  runnerType?: "claude" | "script";
+  /**
+   * For `runnerType === "script"`: path to the script. Resolved against
+   * the aiops repo root if relative; absolute paths are used as-is.
+   * Spawned as `tsx <scriptPath> [...scriptArgs]`.
+   */
+  scriptPath?: string;
+  /**
+   * Positional arguments passed verbatim to the script. Typically
+   * `[jiraKey, branch]` for `run-playwright.ts`.
+   */
+  scriptArgs?: string[];
 };
 
 const KILL_GRACE_MS = 5000;
@@ -84,6 +103,13 @@ const _serializeChains: Map<string, Promise<void>> = new Map();
  * gone so the queue depth tracks process lifetime, not full lane lifetime.
  */
 export function spawnAgent(p: SpawnAgentParams): void {
+  // Pick the inner implementation based on the agent's runner type.
+  // Both implementations share the same exit-callback contract — they
+  // call `onChildExit` exactly once when the child process closes — so
+  // the serialise-chain wrapping below is identical across runner types.
+  const inner =
+    p.runnerType === "script" ? spawnScriptInner : spawnClaudeInner;
+
   if (p.serializeKey) {
     const key = p.serializeKey;
     const prior = _serializeChains.get(key) ?? Promise.resolve();
@@ -92,10 +118,10 @@ export function spawnAgent(p: SpawnAgentParams): void {
     const next = prior.then(() => mine);
     _serializeChains.set(key, next);
     // Spawn after the prior holder's child exits. The release fn is
-    // invoked from spawnAgentInner's child.on("exit") handler.
+    // invoked from the inner's child.on("exit") handler.
     void prior.then(() => {
       try {
-        spawnAgentInner(p, () => {
+        inner(p, () => {
           release();
           if (_serializeChains.get(key) === next) _serializeChains.delete(key);
         });
@@ -107,10 +133,10 @@ export function spawnAgent(p: SpawnAgentParams): void {
     });
     return;
   }
-  spawnAgentInner(p);
+  inner(p);
 }
 
-function spawnAgentInner(p: SpawnAgentParams, onChildExit?: () => void): void {
+function spawnClaudeInner(p: SpawnAgentParams, onChildExit?: () => void): void {
   const args: string[] = [
     "-oL",
     "-eL",
@@ -411,6 +437,41 @@ function spawnAgentInner(p: SpawnAgentParams, onChildExit?: () => void): void {
 
   audit({ action: "run.started", runId: p.runId, taskId: p.taskId, payload: { model: p.model } });
   void sql; // silence unused-import in some configs
+}
+
+// ─── Script-runner inner ───────────────────────────────────────────────
+//
+// Stub for Phase 1 — wires the dispatcher path so a SQL-flip of an
+// agent's runnerType to "script" routes here without throwing. Phase 2
+// fills in the real spawn (tsx <scriptPath>, line-buffered stdout/err
+// piped into messages, same finalize chain). For now, the stub
+// immediately fails the run with a clear message so anyone who turns
+// the dial early sees what's missing.
+function spawnScriptInner(
+  p: SpawnAgentParams,
+  onChildExit?: () => void,
+): void {
+  audit({
+    action: "run.started",
+    runId: p.runId,
+    taskId: p.taskId,
+    payload: {
+      runner: "script",
+      scriptPath: p.scriptPath ?? "(unset)",
+    },
+  });
+  // Phase 2 replaces this stub with a real `child_process.spawn`.
+  void finalize(
+    p.runId,
+    "failed",
+    "spawnScriptInner stub — Phase 2 not yet landed",
+  );
+  // Release the serialise-chain so subsequent spawns aren't deadlocked.
+  try {
+    onChildExit?.();
+  } catch {
+    // ignore
+  }
 }
 
 // decideExitStatus lives in ./exitStatus.ts — it's pure, has no DB
