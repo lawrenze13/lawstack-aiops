@@ -9,6 +9,7 @@ type Artifact = {
     | "plan"
     | "review"
     | "implementation"
+    | "test"
     | "research"
     | "security-review"
     | "perf-review"
@@ -28,6 +29,7 @@ const KIND_LABEL: Record<Artifact["kind"], string> = {
   plan: "Plan",
   review: "Review",
   implementation: "Implementation",
+  test: "Tests",
   research: "Research",
   "security-review": "Security review",
   "perf-review": "Performance review",

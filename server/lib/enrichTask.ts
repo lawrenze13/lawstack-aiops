@@ -1,6 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/server/db/client";
-import { prRecords, runs } from "@/server/db/schema";
+import { artifacts, prRecords, runs } from "@/server/db/schema";
+import { parseTestArtifact } from "@/server/git/testComplete";
 
 // Given a slim task row, enrich it with the current run's status + cost
 // and the latest PR-record state. Used by both /(me) and /team boards.
@@ -27,6 +28,24 @@ export function enrichTask(t: {
     .where(eq(prRecords.taskId, t.id))
     .limit(1)
     .get();
+
+  // Latest test artifact — drives the lane chip's pass/fail count on
+  // the board. One extra point lookup per card; with realistic board
+  // sizes (tens of cards per user) this stays well under 100ms total.
+  // Skip the query when the card has never reached the test lane to
+  // avoid the hit on the common case (cards on plan/review/pr).
+  const testArtifact =
+    t.currentLane === "test" || t.currentLane === "done"
+      ? db
+          .select({ markdown: artifacts.markdown })
+          .from(artifacts)
+          .where(and(eq(artifacts.taskId, t.id), eq(artifacts.kind, "test")))
+          .orderBy(desc(artifacts.createdAt))
+          .limit(1)
+          .get()
+      : null;
+  const testParsed = testArtifact ? parseTestArtifact(testArtifact.markdown) : null;
+
   return {
     id: t.id,
     jiraKey: t.jiraKey,
@@ -39,6 +58,7 @@ export function enrichTask(t: {
       | "review"
       | "pr"
       | "implement"
+      | "test"
       | "done",
     ownerId: t.ownerId,
     runStatus: (currentRun?.status ?? null) as
@@ -53,5 +73,12 @@ export function enrichTask(t: {
     costUsd: currentRun ? currentRun.costUsdMicros / 1_000_000 : 0,
     prState: pr?.state ?? null,
     prUrl: pr?.prUrl ?? null,
+    testVerdict: (testParsed?.verdict ?? null) as
+      | "PASS"
+      | "FAIL"
+      | "SKIPPED"
+      | null,
+    testPassCount: testParsed?.passed ?? 0,
+    testFailCount: testParsed?.failed ?? 0,
   };
 }

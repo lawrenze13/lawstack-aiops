@@ -215,7 +215,7 @@ export async function approveAndPr(
             "create",
             "--draft",
             "--base",
-            "main",
+            env.BASE_BRANCH,
             "--head",
             branch,
             "--title",

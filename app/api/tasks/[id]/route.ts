@@ -30,6 +30,7 @@ const LANES = [
   "review",
   "pr",
   "implement",
+  "test",
   "done",
 ] as const;
 

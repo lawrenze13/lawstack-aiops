@@ -73,8 +73,26 @@ export type StartRunParams = {
    */
   qaFixCycle?: boolean;
   /** Operator-selected Jira comment IDs (the comments-since-done
-   *  picker output). Required when qaFixCycle=true; ignored otherwise. */
+   *  picker output). Required when qaFixCycle=true AND source!=='test_failure';
+   *  ignored otherwise. */
   qaCommentIds?: string[];
+  /**
+   * Discriminator for fix-cycle origin. Stored verbatim in the
+   * run.started_request audit payload so cycle helpers
+   * (`wasTestFixCycleRun`, `isTaskInTestFixCycle`) can distinguish
+   * QA-comment-driven fixes from test-failure-driven fixes without
+   * a schema change. Defaults to "qa" when qaFixCycle=true and
+   * unset (back-compat with the existing qa-fix path).
+   */
+  source?: "qa" | "test_failure";
+  /**
+   * Pre-built findings used as the brainstorm prelude when
+   * `source === "test_failure"`. The qa path computes findings from
+   * filtered Jira comments; the test path bypasses Jira and feeds
+   * the test artifact's failure summary as a single synthetic
+   * finding shaped like a Jira comment.
+   */
+  qaFindings?: Array<{ author: string; created: string; body: string }>;
   /**
    * Interactive mode — only meaningful for `ce:work`. When true the agent
    * prompt instructs the agent to pause via NEEDS_INPUT before every Bash
@@ -190,16 +208,33 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
   // Also computes qaCycleNumber as the count BEFORE this run starts;
   // stored on the audit row so future readers can recover cycle history
   // without recomputing.
+  //
+  // Two fix-cycle origins land here:
+  //   - source === "qa" (or unset): operator picked Jira comments.
+  //     Findings = jiraComments filtered by qaCommentIds.
+  //   - source === "test_failure": Playwright failed and the operator
+  //     clicked Fix from Tests. Findings = caller-supplied synthetic
+  //     comment shaped like a Jira comment (test artifact failure
+  //     summary as the body).
+  const isTestFixStart =
+    params.qaFixCycle === true &&
+    params.source === "test_failure" &&
+    params.lane === "brainstorm";
   const isQaFixStart =
     params.qaFixCycle === true &&
+    !isTestFixStart &&
     params.lane === "brainstorm" &&
     Array.isArray(params.qaCommentIds) &&
     params.qaCommentIds.length > 0;
+  const isFixCycleStart = isQaFixStart || isTestFixStart;
+
   const qaCommentIds = isQaFixStart ? new Set(params.qaCommentIds!) : null;
-  const qaFindings = qaCommentIds
-    ? jiraComments.filter((c) => qaCommentIds.has(c.id))
-    : [];
-  const qaCycleNumberForAudit = isQaFixStart
+  const qaFindings = isTestFixStart
+    ? params.qaFindings ?? []
+    : qaCommentIds
+      ? jiraComments.filter((c) => qaCommentIds.has(c.id))
+      : [];
+  const qaCycleNumberForAudit = isFixCycleStart
     ? qaFixCycleCount(params.taskId) + 1
     : 0;
 
@@ -218,7 +253,7 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
 
   let prompt = params.overridePrompt
     ? params.overridePrompt
-    : isQaFixStart
+    : isFixCycleStart
       ? buildQaFixBrainstormPrompt(promptContext, qaFindings, qaCycleNumberForAudit)
       : params.amendFromReview
         ? buildAmendPlanPrompt(promptContext)
@@ -292,17 +327,26 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
       resume: !!params.resumeSessionId,
       initiator: params.initiator.kind,
       amendFromReview: params.amendFromReview ?? false,
-      // QA-fix metadata. wasQaFixCycleRun(runId) and isTaskInQaFixCycle
-      // (taskCycle.ts) read these. Auto-advance child runs (plan,
+      // Fix-cycle metadata. wasQaFixCycleRun(runId) and
+      // isTaskInQaFixCycle (taskCycle.ts) read `qaFixCycle`; new
+      // wasTestFixCycleRun + isTaskInTestFixCycle helpers read
+      // `source: "test_failure"`. Auto-advance child runs (plan,
       // review) DON'T set qaFixCycle on their own audit rows — they
-      // inherit cycle state via isTaskInQaFixCycle.
+      // inherit cycle state via the per-task helpers.
       ...(isQaFixStart
         ? {
             qaFixCycle: true,
+            source: "qa" as const,
             qaCommentIds: params.qaCommentIds,
             qaCycleNumber: qaCycleNumberForAudit,
           }
-        : {}),
+        : isTestFixStart
+          ? {
+              qaFixCycle: true,
+              source: "test_failure" as const,
+              qaCycleNumber: qaCycleNumberForAudit,
+            }
+          : {}),
     },
   });
 
@@ -325,6 +369,12 @@ export async function startRun(params: StartRunParams): Promise<StartRunResult> 
     costWarnUsd: agent.costWarnUsd,
     costKillUsd: agent.costKillUsd,
     permissionMode: agent.permissionMode,
+    // Serialise Playwright runs across this aiops instance — only one
+    // `test:playwright` agent can fork at a time. Prevents port 3000 +
+    // browser-cache + `playwright-report/` collisions when two tasks
+    // hit Approve Implementation back-to-back.
+    serializeKey:
+      agent.id === "test:playwright" ? "test:playwright:global" : undefined,
   });
 
   return { runId, lane: params.lane, agentId: agent.id };
@@ -408,7 +458,7 @@ async function getRecentCommits(worktreePath: string): Promise<string | undefine
   try {
     const { stdout } = await exec(
       "git",
-      ["log", "-20", "--oneline", "--no-decorate", "origin/main"],
+      ["log", "-20", "--oneline", "--no-decorate", `origin/${env.BASE_BRANCH}`],
       { cwd: worktreePath },
     );
     const out = stdout.trim();

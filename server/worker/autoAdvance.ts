@@ -13,7 +13,13 @@ const NEXT: Record<Lane, Lane | null> = {
   // PR → Implement is a manual click, not auto-advance. Human should
   // review the PR docs before agents start writing code.
   pr: null,
+  // Implement → Test fires from `implementComplete.ts`, not from
+  // run completion (Implement is human-gated by Approve Implementation).
+  // Keeping this null so this auto-advance path remains operator-driven.
   implement: null,
+  // Test → Done fires from `testComplete.ts` after the Playwright run
+  // produces a PASS verdict; on FAIL the lane stays on `test`.
+  test: null,
 };
 
 /**

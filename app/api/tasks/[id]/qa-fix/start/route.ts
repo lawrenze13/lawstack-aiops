@@ -1,4 +1,4 @@
-import { eq, isNull, and } from "drizzle-orm";
+import { eq, isNull, and, desc } from "drizzle-orm";
 import { z } from "zod";
 import { withAuth } from "@/server/lib/route";
 import {
@@ -8,16 +8,28 @@ import {
   NotFound,
 } from "@/server/lib/errors";
 import { db } from "@/server/db/client";
-import { runs, tasks } from "@/server/db/schema";
+import { artifacts, runs, tasks } from "@/server/db/schema";
 import { startRun } from "@/server/worker/startRun";
 import { getIssueComments } from "@/server/jira/client";
 import { lastImplementationCompleteAt } from "@/server/lib/taskCycle";
+import { parseTestArtifact } from "@/server/git/testComplete";
 
 export const runtime = "nodejs";
 
-const RequestBody = z.object({
-  qaCommentIds: z.array(z.string().min(1)).min(1).max(50),
-});
+// Two body shapes:
+//   1. { qaCommentIds: [...] }       — operator picked Jira comments
+//      (original Fix from QA flow on done-lane cards).
+//   2. { source: "test_failure" }    — operator clicked Fix from Tests
+//      on a failed test-lane card. No comment selection; findings come
+//      from the latest test artifact's failure summary.
+const RequestBody = z.union([
+  z.object({
+    qaCommentIds: z.array(z.string().min(1)).min(1).max(50),
+  }),
+  z.object({
+    source: z.literal("test_failure"),
+  }),
+]);
 
 /**
  * POST /api/tasks/:id/qa-fix/start
@@ -45,13 +57,25 @@ export const POST = withAuth(async ({ req, user }) => {
   if (!taskId) throw new BadRequest("missing task id");
 
   const body = RequestBody.parse(await req.json());
+  const isTestFailure = "source" in body && body.source === "test_failure";
 
   const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
   if (!task) throw new NotFound("task not found");
   if (user.role !== "admin" && task.ownerId !== user.id) {
-    throw new Forbidden("only the card owner or an admin can start a QA fix");
+    throw new Forbidden(
+      isTestFailure
+        ? "only the card owner or an admin can start a Fix from Tests"
+        : "only the card owner or an admin can start a QA fix",
+    );
   }
-  if (task.currentLane !== "done") {
+
+  // Lane-shape gate: QA flow → done; Test flow → test.
+  if (isTestFailure && task.currentLane !== "test") {
+    throw new Conflict(
+      `Fix from Tests only available on test-lane cards (current: ${task.currentLane})`,
+    );
+  }
+  if (!isTestFailure && task.currentLane !== "done") {
     throw new Conflict(
       `Fix from QA only available on done-lane cards (current: ${task.currentLane})`,
     );
@@ -74,6 +98,54 @@ export const POST = withAuth(async ({ req, user }) => {
     throw new Conflict(`a run is already active for this task (${activeRun.id})`);
   }
 
+  if (isTestFailure) {
+    // Test-failure path: build synthetic findings from the latest
+    // test artifact. No Jira-comment validation.
+    const artifactRow = db
+      .select({ markdown: artifacts.markdown, createdAt: artifacts.createdAt })
+      .from(artifacts)
+      .where(and(eq(artifacts.taskId, taskId), eq(artifacts.kind, "test")))
+      .orderBy(desc(artifacts.createdAt))
+      .limit(1)
+      .get();
+    if (!artifactRow) {
+      throw new Conflict(
+        "task is on test lane but no test artifact found — re-run the test agent first",
+      );
+    }
+    const parsed = parseTestArtifact(artifactRow.markdown);
+    if (parsed.verdict !== "FAIL") {
+      throw new Conflict(
+        `latest test artifact verdict is ${parsed.verdict}; nothing to fix`,
+      );
+    }
+    const findingBody =
+      `Playwright reported ${parsed.failed}/${parsed.passed + parsed.failed} ` +
+      `specs failing on this branch. The failing specs are:\n\n` +
+      parsed.failingSpecs.map((s) => `- ${s}`).join("\n");
+    const findings = [
+      {
+        author: "Playwright",
+        created: new Date(artifactRow.createdAt).toISOString(),
+        body: findingBody,
+      },
+    ];
+
+    const result = await startRun({
+      taskId,
+      lane: "brainstorm",
+      agentId: "ce:brainstorm",
+      qaFixCycle: true,
+      source: "test_failure",
+      qaFindings: findings,
+      initiator: { userId: user.id, kind: "user" },
+    });
+    return { ok: true, runId: result.runId, source: "test_failure" as const };
+  }
+
+  // QA-comments path (original).
+  const qaCommentIds = "qaCommentIds" in body ? body.qaCommentIds : [];
+
   // Re-fetch comments to validate selection against fresh state. The
   // modal may have been open for a while; comments could have been
   // edited or deleted in Jira in the interim.
@@ -93,7 +165,7 @@ export const POST = withAuth(async ({ req, user }) => {
       })
       .map((c) => c.id),
   );
-  for (const id of body.qaCommentIds) {
+  for (const id of qaCommentIds) {
     if (!validIds.has(id)) {
       throw new BadRequest(
         `comment ${id} is not in the comments-since-done set (was it deleted?)`,
@@ -106,9 +178,9 @@ export const POST = withAuth(async ({ req, user }) => {
     lane: "brainstorm",
     agentId: "ce:brainstorm",
     qaFixCycle: true,
-    qaCommentIds: body.qaCommentIds,
+    qaCommentIds,
     initiator: { userId: user.id, kind: "user" },
   });
 
-  return { ok: true, runId: result.runId };
+  return { ok: true, runId: result.runId, source: "qa" as const };
 });

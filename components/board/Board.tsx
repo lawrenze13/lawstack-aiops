@@ -18,6 +18,7 @@ const LANES = [
   { id: "review", label: "Review" },
   { id: "pr", label: "PR" },
   { id: "implement", label: "Implement" },
+  { id: "test", label: "Test" },
   { id: "done", label: "Done" },
 ] as const;
 type LaneId = (typeof LANES)[number]["id"];
@@ -41,6 +42,12 @@ type Task = {
   costUsd: number;
   prState: string | null;
   prUrl: string | null;
+  /** Latest test artifact verdict for this task; null when no test
+   *  artifact exists. Drives the per-card test-result chip on the
+   *  test + done lanes. */
+  testVerdict?: "PASS" | "FAIL" | "SKIPPED" | null;
+  testPassCount?: number;
+  testFailCount?: number;
 };
 
 type Props = {
@@ -63,6 +70,7 @@ export function Board({ initialTasks, scope }: Props) {
       review: [],
       pr: [],
       implement: [],
+      test: [],
       done: [],
     };
     for (const t of tasks) out[t.currentLane].push(t);
@@ -364,6 +372,16 @@ function CardStatusBadges({ task }: { task: Task }) {
       {task.prState?.startsWith("failed_at_") ? (
         <Chip color="danger" variant="soft" size="sm" className="uppercase text-[9px]">
           PR ✘
+        </Chip>
+      ) : null}
+      {task.testVerdict === "PASS" ? (
+        <Chip color="success" variant="soft" size="sm" className="uppercase text-[9px]">
+          ✓ {task.testPassCount}/{(task.testPassCount ?? 0) + (task.testFailCount ?? 0)}
+        </Chip>
+      ) : null}
+      {task.testVerdict === "FAIL" ? (
+        <Chip color="danger" variant="primary" size="sm" className="uppercase text-[9px]">
+          ✘ {task.testFailCount} failed
         </Chip>
       ) : null}
     </span>

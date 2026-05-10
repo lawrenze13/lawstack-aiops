@@ -11,6 +11,7 @@ type Props = {
     | "plan"
     | "review"
     | "implementation"
+    | "test"
     | "research"
     | "security-review"
     | "perf-review"

@@ -92,6 +92,7 @@ export const tasks = sqliteTable(
         "review",
         "pr",
         "implement",
+        "test",
         "done",
       ],
     })
@@ -137,7 +138,7 @@ export const runs = sqliteTable(
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
     lane: text("lane", {
-      enum: ["brainstorm", "plan", "review", "pr", "implement"],
+      enum: ["brainstorm", "plan", "review", "pr", "implement", "test"],
     }).notNull(),
     agentId: text("agent_id").notNull(),
     agentConfigSnapshotJson: text("agent_config_snapshot_json").notNull(),
@@ -214,6 +215,9 @@ export const artifacts = sqliteTable(
         "plan",
         "review",
         "implementation",
+        // Post-implement Playwright run output — read by testComplete.ts
+        // to drive the lane→done move and the pass/fail Jira comment.
+        "test",
         // Supplementary review artifacts — produced by specialist agents
         // (security, perf, deploy-check, research). Not gated by the
         // Approve flow but visible in the ArtifactPanel.

@@ -16,6 +16,7 @@ export type CardArtifact = {
     | "plan"
     | "review"
     | "implementation"
+    | "test"
     | "research"
     | "security-review"
     | "perf-review"
@@ -32,6 +33,7 @@ const ARTIFACT_KINDS: CardArtifact["kind"][] = [
   "plan",
   "review",
   "implementation",
+  "test",
   "research",
   "security-review",
   "perf-review",
@@ -74,6 +76,7 @@ const KIND_ORDER: CardArtifact["kind"][] = [
   "perf-review",
   "deploy-check",
   "implementation",
+  "test",
 ];
 const KIND_LABEL: Record<CardArtifact["kind"], string> = {
   research: "Research",
@@ -84,6 +87,7 @@ const KIND_LABEL: Record<CardArtifact["kind"], string> = {
   "perf-review": "Performance",
   "deploy-check": "Deploy check",
   implementation: "Implementation",
+  test: "Tests",
 };
 
 export function CardMainTabs({

@@ -114,6 +114,7 @@ export type LaneUI =
   | "review"
   | "pr"
   | "implement"
+  | "test"
   | "done";
 
 export const LANE_CHIP = {
@@ -124,6 +125,7 @@ export const LANE_CHIP = {
   review: { color: "warning", variant: "soft" },
   pr: { color: "accent", variant: "primary" },
   implement: { color: "accent", variant: "primary" },
+  test: { color: "warning", variant: "primary" },
   done: { color: "success", variant: "soft" },
 } as const satisfies Record<
   LaneUI,

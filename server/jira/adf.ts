@@ -257,68 +257,143 @@ export type ImplementCommentInput = {
   prUrl: string;
   jiraKey: string;
   title: string;
-  /**
-   * One-line commit summaries from `git log origin/main..HEAD --pretty='%h %s'`.
-   * First line = most recent commit.
-   */
+  /** PR branch — included in the ship-note's footer. */
+  branch: string;
+  /** Commits bulleted in the comment body for at-a-glance scope. */
   commits: Array<{ sha: string; subject: string }>;
-  /** Full markdown of the implementation artifact, if persisted. */
+  /** Full markdown of the implementation artifact. The new renderer
+   *  parses this for the four required sections (Summary, User-visible
+   *  changes, Risk areas, Test Plan); missing sections render with
+   *  placeholder text rather than failing the comment. */
   implementationMarkdown?: string;
 };
 
 /**
- * Jira comment posted when ce:work finishes cleanly. Summarises what
- * was built, links to the live PR, and bullets the commits so
- * stakeholders can skim without opening GitHub.
+ * Jira comment posted when ce:work finishes cleanly. Delegates to the
+ * shared renderer in `server/jira/shipNote.ts` so the Jira comment and
+ * the GitHub PR description (rewritten in implementComplete Step 1c)
+ * carry byte-identical content.
+ *
+ * The legacy free-form summary + section-TOC body was replaced by the
+ * structured ship-note (Summary + User-visible changes + Risk areas +
+ * Test Plan) sourced from the agent's implementation.md. See:
+ *   - docs/plans/2026-05-05-feat-implementation-handoff-improvements-plan.md
+ *   - server/jira/shipNote.ts (parser + renderer)
  */
 export function implementCommentDoc(input: ImplementCommentInput): AdfDocument {
-  const summary = input.implementationMarkdown
-    ? extractSummary(input.implementationMarkdown, "implementation")
-    : null;
+  // Lazy import to avoid a top-level cycle (shipNote.ts imports from
+  // this same adf.ts for the ADF primitives).
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { buildImplementationShipNote, extractShipNoteSections } =
+    require("./shipNote") as typeof import("./shipNote");
 
-  const nodes: AdfBlockNode[] = [
-    heading(3, "Implementation complete"),
+  const sections = extractShipNoteSections(input.implementationMarkdown ?? "");
+  return buildImplementationShipNote({
+    jiraKey: input.jiraKey,
+    title: input.title,
+    prUrl: input.prUrl,
+    branch: input.branch,
+    commits: input.commits,
+    sections,
+  }).adf;
+}
+
+export type TestCompleteCommentInput = {
+  jiraKey: string;
+  title: string;
+  prUrl: string;
+  branch: string;
+  verdict: "PASS" | "FAIL" | "SKIPPED";
+  passed: number;
+  failed: number;
+  /** Optional path / URL where the persisted Playwright report lives. */
+  reportsLink?: string;
+  /**
+   * Failing-spec details extracted from the test artifact. Empty on PASS.
+   * Each entry is one line — e.g. "spec.ts › auth › login redirects".
+   * Capped to ~10 entries by the caller; remaining failures are linked
+   * to via `reportsLink`.
+   */
+  failingSpecs?: string[];
+};
+
+/**
+ * Jira comment posted by testComplete after the Playwright run finishes.
+ * Symmetric with implementCommentDoc: same header + branch + PR link
+ * scaffolding, but the body summarises the test outcome instead of the
+ * implementation diff.
+ *
+ * Three variants:
+ *   - PASS: short "passed N/N" line + reports link.
+ *   - FAIL: failing-spec list (top 10) + reports link + nudge to use
+ *     "Fix from Tests" or "Re-run".
+ *   - SKIPPED: one-line explanation that the project doesn't have
+ *     Playwright configured. Operator can wire it up.
+ */
+export function testCompleteCommentDoc(input: TestCompleteCommentInput): AdfDocument {
+  const total = input.passed + input.failed;
+  const headerIcon =
+    input.verdict === "PASS" ? "✅" : input.verdict === "FAIL" ? "❌" : "⏭️";
+  const headerText =
+    input.verdict === "PASS"
+      ? `Playwright passed (${input.passed}/${total})`
+      : input.verdict === "FAIL"
+        ? `Playwright failed (${input.failed}/${total} specs)`
+        : "Playwright skipped";
+
+  const blocks: AdfBlockNode[] = [
+    heading(2, `${headerIcon} ${headerText}`),
     paragraph(
-      text("Live PR: "),
+      strong("Branch: "),
+      code(input.branch),
+      "  ",
+      strong("PR: "),
       link(input.prUrl, input.prUrl),
     ),
-    paragraph(strong("Ticket: "), text(input.title)),
-    rule(),
   ];
 
-  // Commits bulleted — this is the meat for human reviewers.
-  if (input.commits.length > 0) {
-    nodes.push(heading(4, "Commits"));
-    nodes.push(
-      bulletList(
-        input.commits.map((c) => {
-          const prefix = `${c.sha} · ${c.subject}`;
-          return paragraph(code(c.sha), text(" "), text(c.subject));
-        }),
+  if (input.verdict === "FAIL" && input.failingSpecs && input.failingSpecs.length > 0) {
+    blocks.push(heading(3, "Failing specs"));
+    blocks.push(
+      bulletList(input.failingSpecs.slice(0, 10).map((s) => paragraph(code(s)))),
+    );
+    if (input.failingSpecs.length > 10) {
+      blocks.push(
+        paragraph(
+          `…and ${input.failingSpecs.length - 10} more. Full results in the persisted report.`,
+        ),
+      );
+    }
+    blocks.push(
+      paragraph(
+        "Use the ",
+        strong("Fix from Tests"),
+        " button on the card to re-flow this through brainstorm → plan → review → implement with the failures injected as findings, or ",
+        strong("Re-run Tests"),
+        " to retry the same suite (e.g. for a flaky test).",
       ),
     );
   }
 
-  // Intro paragraph + section TOC from the implementation artifact
-  // (if the agent wrote one).
-  if (summary?.intro) {
-    nodes.push(heading(4, "Summary"));
-    nodes.push(paragraph(summary.intro));
-  }
-  if (summary && summary.sections.length > 0) {
-    nodes.push(paragraph(strong("Sections:")));
-    nodes.push(bulletList(summary.sections));
+  if (input.verdict === "SKIPPED") {
+    blocks.push(
+      paragraph(
+        "The managed repo does not have Playwright configured (missing ",
+        code("playwright.config"),
+        " or ",
+        code("@playwright/test"),
+        " in package.json). The card has been auto-advanced past the test lane.",
+      ),
+    );
   }
 
-  nodes.push(rule());
-  nodes.push(
-    paragraph(
-      text("Review the diff on GitHub and undraft the PR when ready to merge. "),
-      text("(Generated by LawStack/aiops.)", [{ type: "em" }]),
-    ),
-  );
+  if (input.reportsLink) {
+    blocks.push(
+      paragraph(strong("Full report: "), link(input.reportsLink, input.reportsLink)),
+    );
+  }
 
-  return doc(nodes);
+  return doc(blocks);
 }
 
 /** Best-effort plain-text extraction from Jira's nested ADF descriptions. */

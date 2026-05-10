@@ -13,6 +13,10 @@ import { ApproveButton } from "@/components/card-detail/ApproveButton";
 import { AmendPlanButton } from "@/components/card-detail/AmendPlanButton";
 import { FixFromQaButton } from "@/components/card-detail/FixFromQaButton";
 import { QaCycleChip } from "@/components/card-detail/QaCycleChip";
+import { RerunTestsButton } from "@/components/card-detail/RerunTestsButton";
+import { FixFromTestsButton } from "@/components/card-detail/FixFromTestsButton";
+import { SkipTestsButton } from "@/components/card-detail/SkipTestsButton";
+import { parseTestArtifact } from "@/server/git/testComplete";
 import { ArtifactPanel } from "@/components/card-detail/ArtifactPanel";
 import { CardMainTabs } from "@/components/card-detail/CardMainTabs";
 import { DescriptionPanel } from "@/components/card-detail/DescriptionPanel";
@@ -114,11 +118,13 @@ export default async function CardDetailPage({ params }: Props) {
   //   - `awaitingApproval`: show the approve button
   //   - `implementationFinalised`: show the "finalised" chip
   //
-  // CYCLE-SCOPED: when the operator re-runs brainstorm after a `done`
-  // (multi-cycle support), all three gating predicates must consider
-  // ONLY runs/audit-rows from the current cycle — otherwise cycle 1's
-  // implementation_complete sticks `implementationFinalised=true`
-  // forever and the second-cycle approve button never re-appears.
+  // PER-IMPLEMENT-RUN: the gate keys off the latest implement run's
+  // startedAt, not the cycle start. A cycle-scoped predicate gets stuck
+  // "true" forever after the first approval, so re-running Plan → Review
+  // → Implement against the same brainstorm leaves the new completed
+  // implement run with no path to commit/push. Tying the check to the
+  // run that produced the uncommitted edits keeps the gate honest no
+  // matter how many implement runs share a cycle.
   const cycleStart = currentCycleStartedAt(id);
   const cycleNumber = currentCycleNumber(id);
   const latestImplementRun = [...allRuns]
@@ -128,18 +134,20 @@ export default async function CardDetailPage({ params }: Props) {
         r.lane === "implement" &&
         new Date(r.startedAt).getTime() >= cycleStart.getTime(),
     );
-  const implementationFinalised = !!db
-    .select({ id: auditLog.id })
-    .from(auditLog)
-    .where(
-      and(
-        eq(auditLog.taskId, id),
-        eq(auditLog.action, "task.implementation_complete"),
-        gt(auditLog.ts, cycleStart),
-      ),
-    )
-    .limit(1)
-    .get();
+  const implementationFinalised =
+    !!latestImplementRun &&
+    !!db
+      .select({ id: auditLog.id })
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.taskId, id),
+          eq(auditLog.action, "task.implementation_complete"),
+          gt(auditLog.ts, new Date(latestImplementRun.startedAt)),
+        ),
+      )
+      .limit(1)
+      .get();
   const awaitingImplementationApproval =
     !!latestImplementRun &&
     latestImplementRun.status === "completed" &&
@@ -180,6 +188,7 @@ export default async function CardDetailPage({ params }: Props) {
     | "plan"
     | "review"
     | "implementation"
+    | "test"
     | "research"
     | "security-review"
     | "perf-review"
@@ -286,6 +295,28 @@ export default async function CardDetailPage({ params }: Props) {
             currentLane={task.currentLane}
             canControl={canControl}
             runActive={allRuns.some((r) => r.status === "running")}
+          />
+          <RerunTestsButton
+            taskId={task.id}
+            currentLane={task.currentLane}
+            canControl={canControl}
+            runActive={allRuns.some((r) => r.status === "running")}
+          />
+          <FixFromTestsButton
+            taskId={task.id}
+            currentLane={task.currentLane}
+            canControl={canControl}
+            runActive={allRuns.some((r) => r.status === "running")}
+            verdict={
+              latestArtifactByKind.has("test")
+                ? parseTestArtifact(latestArtifactByKind.get("test")!.markdown).verdict
+                : null
+            }
+          />
+          <SkipTestsButton
+            taskId={task.id}
+            currentLane={task.currentLane}
+            canControl={canControl}
           />
           <ApproveButton
             taskId={task.id}

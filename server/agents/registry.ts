@@ -7,7 +7,7 @@
 
 import { createHash } from "node:crypto";
 
-export type Lane = "brainstorm" | "plan" | "review" | "pr" | "implement";
+export type Lane = "brainstorm" | "plan" | "review" | "pr" | "implement" | "test";
 
 export type PermissionMode = "acceptEdits" | "bypassPermissions";
 
@@ -506,16 +506,62 @@ Do NOT use NEEDS_INPUT for:
 When the implementation is complete:
 1. Run \`git status\` to verify your changes are present in the working
    tree (uncommitted is correct — server will commit them).
-2. Write \`docs/implementation/${ctx.jiraKey}-implementation.md\` with:
-   - One short paragraph of what changed.
-   - Bullet list of files touched and why (since there are no commits
-     for the reviewer to scan, the file-by-file summary is important).
-   - "Manual verification" section: what the human should check before
-     undrafting the PR.
+2. Write \`docs/implementation/${ctx.jiraKey}-implementation.md\` with
+   these **four required h2 sections, in order**. The server parses
+   them at Approve Implementation time and posts both a Jira comment
+   and the GitHub PR description from this file — QA reads this as
+   their source of truth for what to test.
+
+   \`\`\`markdown
+   ## Summary
+
+   One paragraph in plain language: what got built, in user / product
+   terms (not "I edited foo.ts"). Should make sense to a PM reading
+   the Jira ticket.
+
+   ## User-visible changes
+
+   Bulleted list — each bullet is a thing the operator or end-user
+   sees differently after this PR lands. New buttons, changed copy,
+   different toasts, behavioural shifts. Empty list (\`_None — pure
+   refactor / internal change._\`) if there are no user-visible
+   changes.
+
+   ## Risk areas
+
+   Bulleted list — files / flows / integrations that could regress,
+   ranked highest-blast-radius first. Reference specific paths
+   (\`server/git/approve.ts\`, \`/api/tasks/[id]/approve\`).
+   You just touched the code; QA needs your read on where it could
+   break.
+
+   ## Test Plan
+
+   Bulleted list — concrete verification scenarios written as
+   imperative steps a tester can follow. One bullet per acceptance
+   criterion from the Plan, plus any edge case you found while
+   building. Examples:
+
+   - "Take a card to \`done\`. Click Run → Brainstorm. Verify the
+     cascade reaches \`review\` without errors."
+   - "Trigger 429 from the chat endpoint (mash Send 25 times in a
+     minute); verify the error toast surfaces and the textarea
+     stays usable for retry."
+
+   This section is the QA contract. Be specific.
+   \`\`\`
+
+   Optional sections (include only when they add real signal):
+   \`## Files Touched\`, \`## Out of scope\`, \`## Migration notes\`,
+   \`## Rollback\`. Any other headings will be dropped from the
+   rendered handoff (the server only ships recognised sections to
+   Jira / the PR description).
+
 3. Your final message should summarise the work briefly. The server
    will automatically:
      - stage everything, commit with a single message, push
-     - post a Jira comment with the file list + summary
+     - rewrite the GitHub PR description with your four sections
+     - post a Jira comment with the same content
      - transition the Jira ticket to "Code Review"
 
 ## Rules
@@ -662,6 +708,94 @@ Concrete queries/commands only. \`"watch for errors"\` is not a plan.
 `;
 };
 
+// Post-implement Playwright runner. Mostly orchestrates bash:
+//   1. Verify the managed repo has Playwright (playwright.config.* + a
+//      `test:e2e` script or fall back to `pnpm playwright test`).
+//   2. Run `pnpm playwright install --with-deps` (idempotent — browsers
+//      cache to `~/.cache/ms-playwright`, which is in HOME from the
+//      minimised env in spawnAgent).
+//   3. Run the suite with the JSON reporter so the result count is
+//      machine-parseable.
+//   4. Write `docs/tests/<JIRA>-test.md` with a frontmatter verdict +
+//      pass/fail counts so persistArtifacts can ingest it and
+//      testComplete can drive the lane→done move.
+//   5. Exit non-zero on FAIL so decideExitStatus marks the run as
+//      `"failed"` (no separate `qa_failed` enum value exists; FAIL is
+//      detected via the artifact verdict by testComplete).
+//
+// The prompt is intentionally short — Playwright is the source of
+// truth, the agent just shuttles its output into the canonical artifact
+// shape.
+const playwrightTestPrompt = (ctx: PromptContext): string => {
+  return `You are running the Playwright suite for Jira ticket ${ctx.jiraKey} against this worktree's branch.
+
+Ticket: ${ctx.jiraKey}
+Title: ${ctx.title}
+
+## Steps
+
+1. Confirm Playwright is configured: \`playwright.config.ts\` (or .js/.mjs)
+   exists at the worktree root, and \`@playwright/test\` is in
+   \`package.json\`'s deps. If not, write
+   \`docs/tests/${ctx.jiraKey}-test.md\` with verdict \`SKIPPED\` (see
+   schema below) explaining what's missing, then exit 0.
+2. Install browsers (idempotent):
+   \`\`\`
+   pnpm playwright install --with-deps
+   \`\`\`
+3. Run the suite, emitting both list (for stream readability) and json
+   reporters:
+   \`\`\`
+   PLAYWRIGHT_JSON_OUTPUT_NAME=test-results.json \\
+     pnpm playwright test --reporter=list,json
+   \`\`\`
+   The managed repo's \`playwright.config\` should configure
+   \`webServer\` so the app boots automatically. If it doesn't and the
+   tests need a server, fail loudly — that's a managed-repo bug, not
+   an aiops one.
+4. Parse \`test-results.json\` for total pass/fail counts and the list
+   of failing specs (file, title, error excerpt).
+5. Write the artifact at \`docs/tests/${ctx.jiraKey}-test.md\` with
+   YAML frontmatter:
+   \`\`\`yaml
+   ---
+   ticket: ${ctx.jiraKey}
+   date: <today, ISO 8601>
+   status: draft
+   verdict: PASS | FAIL | SKIPPED
+   passed: <number>
+   failed: <number>
+   ---
+   \`\`\`
+   Body sections:
+   - **Summary**: one line — "Playwright passed (N/N)" or
+     "Playwright failed: N/N specs failed".
+   - **Failing specs** (FAIL only): for each failing spec — file,
+     test title, the first ~10 lines of the error message. Link
+     the path to the HTML report under
+     \`playwright-report/index.html\` (the server copies this
+     directory to TEST_REPORTS_ROOT at run completion).
+   - **Run metadata**: Playwright version, browser list, total
+     duration, link to the full \`test-results.json\` (kept in the
+     worktree for now; copied to reports root by testComplete).
+6. **Exit code**: \`0\` on PASS or SKIPPED, \`1\` on FAIL. The harness
+   reads the exit code as the primary signal; the artifact verdict is
+   the secondary signal that drives the Jira comment + lane move.
+
+## Rules
+
+- Do NOT modify any source files except \`docs/tests/${ctx.jiraKey}-test.md\`.
+- Do NOT commit or push (the worktree's pushed state is what's under test).
+- Do NOT \`git checkout\`, \`stash\`, \`reset\`, or otherwise change
+  branches.
+- If \`pnpm\` isn't on PATH, fall back to \`npx playwright …\` — the
+  project may use npm or yarn instead.
+- Keep your turn count low: this is a bash-orchestration job, not a
+  reasoning job. Don't analyse failures — just record them. The
+  Fix-from-Tests loop will diagnose downstream.
+`;
+};
+
 export const AGENTS = {
   "ce:brainstorm": {
     id: "ce:brainstorm",
@@ -748,6 +882,27 @@ export const AGENTS = {
     costWarnUsd: 10,
     costKillUsd: 30,
     buildPrompt: workPrompt,
+  },
+  "test:playwright": {
+    id: "test:playwright",
+    name: "CE Playwright",
+    lanes: ["test"],
+    // No CE skill backs this — it's a thin shell-orchestration agent.
+    skillHint: null,
+    // Sonnet is fine: the agent reads JSON output and writes a
+    // markdown summary. No real reasoning needed.
+    model: "claude-sonnet-4-6",
+    // Tight cap — most of the wall-clock is Playwright itself, which
+    // doesn't burn Claude turns.
+    maxTurns: 30,
+    // Required to run `pnpm playwright install` + `pnpm playwright test`
+    // unprompted. Same env-minimisation as ce:work.
+    permissionMode: "bypassPermissions",
+    // Default cost caps ($5/$15 from globals) — overridable via
+    // AGENT_OVERRIDES once we have signal from real runs.
+    buildPrompt: playwrightTestPrompt,
+    // Output filename is `docs/tests/<JIRA>-test.md`; persistArtifacts
+    // already maps this via LANE_TO_KIND.test.
   },
 } as const satisfies Record<string, AgentConfig>;
 
@@ -865,6 +1020,8 @@ export function defaultAgentForLane(lane: Lane): AgentId | undefined {
       return undefined; // PR is not agent-driven; user clicks Approve & PR
     case "implement":
       return "ce:work";
+    case "test":
+      return "test:playwright";
   }
 }
 

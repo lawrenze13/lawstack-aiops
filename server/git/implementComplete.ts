@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import path from "node:path";
 import { promisify } from "node:util";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/server/db/client";
@@ -162,8 +163,78 @@ export async function implementComplete(
     }
   }
 
-  // Collect commits for the Jira comment.
+  // Collect commits for the Jira comment + PR description.
   const commits = await getCommitsSinceMain(wt?.path);
+
+  // ─── Step 1c: rewrite the PR description with the implementation
+  //              ship-note ─────────────────────────────────────────────
+  // The PR description today is whatever `approveAndPr` set during the
+  // planning stage (bullets pointing at brainstorm/plan/review docs).
+  // After implementation lands, that body is stale — reviewers reach
+  // for the description and see "review the planning docs" instead of
+  // "here's what shipped." Rewrite it to match the Jira "Implementation
+  // complete" comment exactly (same shared renderer in
+  // server/jira/shipNote.ts). See:
+  //   docs/plans/2026-05-05-feat-implementation-handoff-improvements-plan.md
+  //
+  // Best-effort: a `gh pr edit` failure does NOT block the Jira comment
+  // (Step 2) or the lane move (Step 4). The Jira comment + PR commits
+  // are the load-bearing handoff; the description rewrite is presentation
+  // polish. Differs from Step 2's hard-fail behaviour because Step 2's
+  // failure would leave QA with no notification at all.
+  //
+  // Idempotency: `hasPriorAudit("pr.description_updated")` short-circuits
+  // re-runs of `implementComplete` so we don't thrash GitHub on retry.
+  if (wt?.path && !hasPriorAudit(taskId, "pr.description_updated")) {
+    try {
+      const { buildImplementationShipNote, extractShipNoteSections } =
+        await import("@/server/jira/shipNote");
+      const { currentCycleNumber } = await import("@/server/lib/taskCycle");
+      const implementationMarkdown = await getImplementationMarkdown(taskId);
+      const sections = extractShipNoteSections(implementationMarkdown ?? "");
+      const shipNote = buildImplementationShipNote({
+        jiraKey: task.jiraKey,
+        title: task.title,
+        prUrl: pr.prUrl,
+        branch: pr.branch,
+        commits,
+        sections,
+        cycleNumber: currentCycleNumber(taskId),
+      });
+
+      const { writeFile, unlink } = await import("node:fs/promises");
+      const { tmpdir } = await import("node:os");
+      const tmpPath = path.join(tmpdir(), `aiops-pr-body-${runId}.md`);
+      await writeFile(tmpPath, shipNote.markdown, "utf8");
+      try {
+        await exec(
+          "gh",
+          ["pr", "edit", pr.branch, "--body-file", tmpPath],
+          { cwd: wt.path },
+        );
+        audit({
+          action: "pr.description_updated",
+          taskId,
+          runId,
+          payload: {
+            branch: pr.branch,
+            prUrl: pr.prUrl,
+            sectionsComplete: sections.complete,
+          },
+        });
+      } finally {
+        await unlink(tmpPath).catch(() => {});
+      }
+    } catch (err) {
+      warnings.push(`gh pr edit body failed: ${(err as Error).message}`);
+      audit({
+        action: "pr.description_update_failed",
+        taskId,
+        runId,
+        payload: { error: (err as Error).message },
+      });
+    }
+  }
 
   // ─── Step 2: Jira implementation comment ─────────────────────────────
   // QA-fix branch: when the task is mid-QA-fix-cycle, post the QA-fix-
@@ -179,6 +250,8 @@ export async function implementComplete(
       runId,
       taskId,
       prUrl: pr.prUrl,
+      branch: pr.branch,
+      commits,
     });
     // postQaFixComment writes its own audit row (jira.qa_fix_comment_*).
     // jiraCommentId stays null in the return — the QA-fix audit row is
@@ -199,6 +272,7 @@ export async function implementComplete(
           prUrl: pr.prUrl,
           jiraKey: task.jiraKey,
           title: task.title,
+          branch: pr.branch,
           commits,
           implementationMarkdown,
         });
@@ -273,7 +347,7 @@ export async function implementComplete(
     }
   }
 
-  // ─── Step 4: move task lane to 'done' ────────────────────────────────
+  // ─── Step 4: move task lane to 'test' (or 'done' on QA-fix cycles) ───
   // Wrap lane update + cycle-close audit in a single transaction. They
   // were previously two sequential statements — a crash between them
   // left lane=done with no `task.implementation_complete` audit row,
@@ -281,10 +355,23 @@ export async function implementComplete(
   // cycle; `awaitingImplementationApproval` cycle-scoped predicate
   // would mis-classify a finished task as still awaiting).
   // (Deepen-plan finding: data-integrity SEV-2.)
+  //
+  // QA-fix and test-fix cycles both skip the test lane and land
+  // directly on `done`. For QA cycles: the human QA finding is the
+  // authoritative signal, an automated re-test isn't more so. For
+  // test cycles: re-running the same Playwright suite against new
+  // code that was already shaped by its findings is just verification
+  // theatre — if the failures came from a flaky environment we'd be
+  // re-flaking, and if they came from real bugs the operator would
+  // run them locally before approving.
+  const { isTaskInTestFixCycle } = await import("@/server/lib/taskCycle");
+  const inTestFixCycle = isTaskInTestFixCycle(taskId);
+  const skipTestLane = inQaFixCycle || inTestFixCycle;
+  const nextLane: "test" | "done" = skipTestLane ? "done" : "test";
   try {
     db.transaction((tx) => {
       tx.update(tasks)
-        .set({ currentLane: "done", updatedAt: new Date() })
+        .set({ currentLane: nextLane, updatedAt: new Date() })
         .where(eq(tasks.id, taskId))
         .run();
       tx.insert(auditLog)
@@ -296,6 +383,7 @@ export async function implementComplete(
             pushed,
             commits: commits.length,
             transitioned,
+            nextLane,
           }),
         })
         .run();
@@ -306,6 +394,32 @@ export async function implementComplete(
       failedAt: "lane_to_done",
       error: `lane update failed: ${(err as Error).message}`,
     };
+  }
+
+  // ─── Step 5: kick off the Playwright run on the test lane ───────────
+  // Cycle-1 path only — for QA-fix cycles we already wrote 'done' above.
+  // Best-effort: a startRun failure does not roll back the lane
+  // (Approve Implementation already succeeded; the operator can
+  // manually start the test run from the card if needed).
+  if (!skipTestLane) {
+    try {
+      const { startRun } = await import("@/server/worker/startRun");
+      await startRun({
+        taskId,
+        lane: "test",
+        agentId: "test:playwright",
+        initiator: { kind: "auto_advance" },
+        bypassIdempotency: true,
+      });
+    } catch (err) {
+      warnings.push(`test:playwright start failed: ${(err as Error).message}`);
+      audit({
+        action: "test.start_failed",
+        taskId,
+        runId,
+        payload: { error: (err as Error).message },
+      });
+    }
   }
 
   return {
@@ -357,7 +471,7 @@ async function getCommitsSinceMain(
   try {
     const { stdout } = await exec(
       "git",
-      ["log", "origin/main..HEAD", "--pretty=%h%x09%s"],
+      ["log", `origin/${env.BASE_BRANCH}..HEAD`, "--pretty=%h%x09%s"],
       { cwd: worktreePath },
     );
     const lines = stdout.trim().split("\n").filter(Boolean);

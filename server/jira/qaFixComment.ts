@@ -1,136 +1,78 @@
 import { eq, and, desc } from "drizzle-orm";
 import { db } from "@/server/db/client";
-import { artifacts, auditLog, tasks } from "@/server/db/schema";
+import { artifacts, tasks } from "@/server/db/schema";
 import { audit } from "@/server/auth/audit";
 import { postComment } from "./client";
-import {
-  doc,
-  heading,
-  paragraph,
-  strong,
-  text,
-  rule,
-  panel,
-  bulletList,
-  extractSummary,
-} from "./adf";
 import { env } from "@/server/lib/env";
+import { currentCycleNumber } from "@/server/lib/taskCycle";
+import {
+  buildImplementationShipNote,
+  extractShipNoteSections,
+} from "./shipNote";
 
 /**
  * Post a Jira comment summarising a QA-fix cycle's pushed implementation.
- * Called by `implementComplete` when the run-finalising path detects this
- * task is in a QA fix cycle (`isTaskInQaFixCycle`).
+ * Called by `implementComplete` when the run-finalising path detects
+ * this task is in a QA fix cycle (`isTaskInQaFixCycle`).
+ *
+ * Delegates to the shared shipNote renderer (cycleNumber > 1 swaps the
+ * heading to "QA fix pushed — round N"). Same body as cycle 1's
+ * `implementCommentDoc`, just a different heading. The PR description
+ * rewrite in Step 1c writes byte-identical content.
  *
  * Mirrors `postAmendmentComment` shape — best-effort, never throws.
- *
- * The comment includes:
- *   - The cycle number (parsed from the originating brainstorm's audit row)
- *   - The QA findings that drove this cycle (operator-selected Jira
- *     comment IDs, looked up via the audit row's qaCommentIds payload)
- *   - One-line summary from the latest implementation artifact
- *   - The PR link (carried in via `prUrl`)
  */
 export async function postQaFixComment(opts: {
   runId: string;
   taskId: string;
-  prUrl: string | null;
+  prUrl: string;
+  branch: string;
+  commits: Array<{ sha: string; subject: string }>;
 }): Promise<void> {
   if (!env.JIRA_BASE_URL || !env.JIRA_API_TOKEN) return;
 
-  const { runId, taskId, prUrl } = opts;
+  const { runId, taskId, prUrl, branch, commits } = opts;
   const task = db.select().from(tasks).where(eq(tasks.id, taskId)).get();
   if (!task) return;
 
-  // Find the brainstorm run-start audit row that opened the current
-  // QA cycle. That's the most recent run.started_request for this task
-  // with payload.qaFixCycle === true. Its payload carries the cycle
-  // number and the operator-selected comment IDs.
-  const brainstormStart = db
-    .select({ payloadJson: auditLog.payloadJson })
-    .from(auditLog)
-    .where(
-      and(
-        eq(auditLog.taskId, taskId),
-        eq(auditLog.action, "run.started_request"),
-      ),
-    )
-    .orderBy(desc(auditLog.id))
-    .all();
+  // Cycle number is the number of brainstorm runs (cycle 2+ on QA-fix).
+  // Fallback to currentCycleNumber from taskCycle to keep the source of
+  // truth in one place.
+  const cycleNumber = currentCycleNumber(taskId);
 
-  type StartPayload = {
-    qaFixCycle?: boolean;
-    qaCycleNumber?: number;
-    qaCommentIds?: string[];
-  };
-  const cycleStart = brainstormStart
-    .map((r): StartPayload | null => {
-      if (!r.payloadJson) return null;
-      try {
-        return JSON.parse(r.payloadJson) as StartPayload;
-      } catch {
-        return null;
-      }
-    })
-    .find((p): p is StartPayload => p?.qaFixCycle === true);
-
-  const cycleNumber = cycleStart?.qaCycleNumber ?? null;
-  const qaCommentIds = cycleStart?.qaCommentIds ?? [];
-
-  // Latest implementation artifact for the one-liner summary.
+  // Pull the latest implementation artifact + parse its sections.
   const latestImpl = db
-    .select({ filename: artifacts.filename, markdown: artifacts.markdown })
+    .select({ markdown: artifacts.markdown })
     .from(artifacts)
     .where(and(eq(artifacts.taskId, taskId), eq(artifacts.kind, "implementation")))
     .orderBy(desc(artifacts.createdAt))
     .limit(1)
     .get();
-  const summary = latestImpl
-    ? extractSummary(latestImpl.markdown, "implementation")
-    : { intro: "", sections: [] as string[], verdict: null };
+  const sections = extractShipNoteSections(latestImpl?.markdown ?? "");
 
-  const headingText = cycleNumber
-    ? `QA fix pushed — round ${cycleNumber}`
-    : "QA fix pushed";
-
-  const body = doc([
-    heading(3, headingText),
-    paragraph(
-      text(
-        `Code changes addressing the QA findings have been pushed to the existing PR.${
-          qaCommentIds.length > 0
-            ? ` ${qaCommentIds.length} QA comment${
-                qaCommentIds.length === 1 ? "" : "s"
-              } drove this cycle.`
-            : ""
-        }`,
-      ),
-    ),
-    panel(
-      "info",
-      paragraph(
-        strong("Ready for re-test. "),
-        text(
-          "Pull the branch and verify the findings are resolved. If new issues surface, leave fresh comments and trigger another Fix from QA cycle.",
-        ),
-      ),
-    ),
-    rule(),
-    summary.intro
-      ? paragraph(strong("Summary: "), text(summary.intro))
-      : paragraph(""),
-    summary.sections.length > 0 ? bulletList(summary.sections) : paragraph(""),
-    rule(),
-    prUrl ? paragraph(strong("PR: "), text(prUrl)) : paragraph(""),
-    paragraph(text("(Generated by LawStack/aiops.)", [{ type: "em" }])),
-  ]);
+  const shipNote = buildImplementationShipNote({
+    jiraKey: task.jiraKey,
+    title: task.title,
+    prUrl,
+    branch,
+    commits,
+    sections,
+    cycleNumber,
+  });
 
   try {
-    const commentId = await postComment(task.jiraKey, body);
+    const commentId = await postComment(task.jiraKey, shipNote.adf);
     audit({
       action: "jira.qa_fix_comment_posted",
       taskId,
       runId,
-      payload: { commentId, jiraKey: task.jiraKey, cycleNumber, prUrl },
+      payload: {
+        commentId,
+        jiraKey: task.jiraKey,
+        cycleNumber,
+        prUrl,
+        sectionsComplete: sections.complete,
+      },
     });
   } catch (err) {
     // eslint-disable-next-line no-console
