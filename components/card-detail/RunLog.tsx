@@ -1045,6 +1045,11 @@ function ServerLine({ payload }: { payload: unknown }) {
     code?: number;
     usdCumulative?: number;
     text?: string;
+    // Script-runner additions (PR-test-runner). `spawned` events from
+    // the script path carry `runner: "script"` + `scriptPath` so the
+    // log shows which script forked instead of "Claude subprocess".
+    runner?: "claude" | "script";
+    scriptPath?: string;
   };
   if (p.kind === "cost_tick") return null;
 
@@ -1065,11 +1070,15 @@ function ServerLine({ payload }: { payload: unknown }) {
   const content = (() => {
     switch (p.kind) {
       case "spawned":
-        return "▶ spawned Claude subprocess";
+        return p.runner === "script"
+          ? `▶ spawned script: ${p.scriptPath ?? "(unknown)"}`
+          : "▶ spawned Claude subprocess";
       case "exit":
         return `⏹ subprocess exited (code=${p.code})`;
       case "spawn_error":
         return `✘ spawn error: ${p.error}`;
+      case "stdout":
+        return p.line;
       case "stderr":
         return `stderr: ${p.line}`;
       case "parse_error":
