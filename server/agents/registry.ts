@@ -906,20 +906,28 @@ export const AGENTS = {
     id: "test:playwright",
     name: "CE Playwright",
     lanes: ["test"],
-    // No CE skill backs this — it's a thin shell-orchestration agent.
     skillHint: null,
-    // Sonnet is fine: the agent reads JSON output and writes a
-    // markdown summary. No real reasoning needed.
-    model: "claude-sonnet-4-6",
-    // Tight cap — most of the wall-clock is Playwright itself, which
-    // doesn't burn Claude turns.
-    maxTurns: 30,
-    // Required to run `pnpm playwright install` + `pnpm playwright test`
-    // unprompted. Same env-minimisation as ce:work.
-    permissionMode: "bypassPermissions",
-    // Default cost caps ($5/$15 from globals) — overridable via
-    // AGENT_OVERRIDES once we have signal from real runs.
-    buildPrompt: playwrightTestPrompt,
+    // Script runner — no Claude subprocess. spawnScriptInner forks
+    // `tsx scripts/run-playwright.ts <jiraKey> <branch>` directly,
+    // saving the ~$0.10–$0.50 in Claude tokens this agent used to
+    // burn for shell orchestration that doesn't benefit from LLM
+    // reasoning. The script writes the same `docs/tests/<JIRA>-test.md`
+    // shape testComplete reads via parseTestArtifact, so the
+    // downstream pipeline (artifact ingest, Jira comment, lane
+    // transition) is unchanged.
+    runnerType: "script",
+    script: "scripts/run-playwright.ts",
+    // Required by the AgentConfig type but unused for script
+    // runners. The buildPrompt fn satisfies the type contract;
+    // startRun skips calling it when runnerType === "script".
+    model: "n/a",
+    maxTurns: 0,
+    buildPrompt: () => "",
+    // Kept for back-compat with the old prompt for inspection /
+    // forensics, even though the script runner doesn't use it.
+    // Comment out to drop the unused import; leave for now in case
+    // we need to debug a regression.
+    // legacyClaudePrompt: playwrightTestPrompt,
     // Output filename is `docs/tests/<JIRA>-test.md`; persistArtifacts
     // already maps this via LANE_TO_KIND.test.
   },
@@ -1013,6 +1021,17 @@ export function getAgent(
         `${baseBuildPrompt(ctx)}\n\n## Operator notes\n\n${appendText.trim()}\n`
     : baseBuildPrompt;
 
+  // Script-runner override: TEST_RUNNER_SCRIPT (config) replaces the
+  // bundled `scripts/run-playwright.ts` for any agent whose
+  // runnerType === "script". Lets a managed repo provide its own
+  // runner without forking aiops. Currently only test:playwright
+  // qualifies; future script agents can opt into the same key by
+  // declaring runnerType: "script".
+  const scriptOverride =
+    base.runnerType === "script"
+      ? (getConfig("TEST_RUNNER_SCRIPT") ?? undefined)
+      : undefined;
+
   return {
     ...base,
     model:
@@ -1024,6 +1043,7 @@ export function getAgent(
       pickNumber(userOverrides.costKillUsd, instanceOverrides.costKillUsd) ??
       base.costKillUsd,
     buildPrompt,
+    script: scriptOverride ?? base.script,
   };
 }
 

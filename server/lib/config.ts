@@ -75,6 +75,12 @@ export const configSchema = z.object({
   // string disables persistence (reports stay in the worktree only,
   // pruned with it).
   TEST_REPORTS_ROOT: z.string().min(1).default("/var/aiops/test-reports"),
+  // Optional override for the test-lane runner script. Blank = use
+  // the bundled default (`scripts/run-playwright.ts`). Set this when
+  // a managed repo provides its own runner with project-specific
+  // conventions (custom reporters, fixtures, env vars, etc.). Path
+  // can be absolute or relative to aiops's repo root.
+  TEST_RUNNER_SCRIPT: optionalStr(z.string().min(1)),
   // Optional Jira workflow status to transition to when the test lane
   // PASSes. Blank disables the transition (the standard case — most
   // projects don't have a dedicated post-test column).

@@ -236,6 +236,14 @@ export const SETTINGS: SettingSection[] = [
         kind: "text",
         placeholder: "/var/aiops/test-reports",
       },
+      {
+        key: "TEST_RUNNER_SCRIPT",
+        label: "Test runner script (optional)",
+        description:
+          "Override the bundled Playwright runner. Path to a Node TypeScript script, relative to aiops's repo root or absolute. Blank = use the default (`scripts/run-playwright.ts`). Set this when your managed repo needs project-specific test conventions.",
+        kind: "text",
+        placeholder: "scripts/run-playwright.ts",
+      },
     ],
   },
   {
