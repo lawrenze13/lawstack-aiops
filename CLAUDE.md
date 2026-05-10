@@ -128,6 +128,19 @@ exports:
 - `ce:review`, `security:review`, `perf:review`, `deploy:check` —
   Review lane (only the first is gating; others are supplementary)
 - `ce:work` — Implement lane
+- `test:playwright` — Test lane
+
+**Runner types.** Agents declare a `runnerType` discriminator:
+`"claude"` (default) forks `claude -p ...` and pays token cost.
+`"script"` forks a plain Node script via `tsx <agent.script>` —
+no LLM, no cost meter, no prompt. The dispatcher in
+`server/worker/spawnAgent.ts` routes by type. Both paths share
+`runRegistry` (Stop button), the serialise-chain mutex
+(`serializeKey`), and the post-exit `finalize` chain (artifact
+persistence, testComplete, autoAdvance). Today only
+`test:playwright` uses `runnerType: "script"` (script:
+`scripts/run-playwright.ts`); the operator can override the
+script path globally via `TEST_RUNNER_SCRIPT` config.
 
 **Operator overrides:** instance-wide via the `AGENT_OVERRIDES` JSON
 blob in `settings`; per-user via `user_prefs.agent_overrides_json`.
