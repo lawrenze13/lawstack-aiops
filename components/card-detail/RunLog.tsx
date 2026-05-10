@@ -190,6 +190,11 @@ export type RunSummary = {
   numTurns: number;
   costUsd: number;
   startedAt: number;
+  /** Spawn path of the run. Script runs hide the cost label
+   *  (always $0; visually ambiguous next to cost-killed Claude
+   *  runs). Falls back to "claude" for runs predating the
+   *  discriminator (snapshot's runnerType missing). */
+  runnerType?: "claude" | "script";
 };
 
 type Props = {
@@ -561,7 +566,9 @@ export function RunLog({
           />
           <span className="font-mono">run {runId.slice(0, 8)}</span>
           <span className="text-[color:var(--muted)]">turn {turnCount}</span>
-          <CostBadge usd={state.costUsd} costState={state.costState} />
+          {runs.find((r) => r.id === runId)?.runnerType === "script" ? null : (
+            <CostBadge usd={state.costUsd} costState={state.costState} />
+          )}
         </span>
         <span className="flex items-center gap-2">
           <span className="rounded bg-[color:var(--surface-secondary)] px-2 py-0.5 font-medium">
@@ -1045,6 +1052,11 @@ function ServerLine({ payload }: { payload: unknown }) {
     code?: number;
     usdCumulative?: number;
     text?: string;
+    // Script-runner additions (PR-test-runner). `spawned` events from
+    // the script path carry `runner: "script"` + `scriptPath` so the
+    // log shows which script forked instead of "Claude subprocess".
+    runner?: "claude" | "script";
+    scriptPath?: string;
   };
   if (p.kind === "cost_tick") return null;
 
@@ -1065,11 +1077,15 @@ function ServerLine({ payload }: { payload: unknown }) {
   const content = (() => {
     switch (p.kind) {
       case "spawned":
-        return "▶ spawned Claude subprocess";
+        return p.runner === "script"
+          ? `▶ spawned script: ${p.scriptPath ?? "(unknown)"}`
+          : "▶ spawned Claude subprocess";
       case "exit":
         return `⏹ subprocess exited (code=${p.code})`;
       case "spawn_error":
         return `✘ spawn error: ${p.error}`;
+      case "stdout":
+        return p.line;
       case "stderr":
         return `stderr: ${p.line}`;
       case "parse_error":

@@ -86,7 +86,7 @@ export function RunHistoryList({ runs }: Props) {
                     {r.numTurns} turn{r.numTurns === 1 ? "" : "s"}
                   </td>
                   <td className="py-1.5 align-top text-right font-mono text-[10px] text-[color:var(--muted)]">
-                    ${r.costUsd.toFixed(4)}
+                    {r.runnerType === "script" ? "" : `$${r.costUsd.toFixed(4)}`}
                   </td>
                 </tr>
               ))}

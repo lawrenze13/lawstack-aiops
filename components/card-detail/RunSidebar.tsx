@@ -12,6 +12,10 @@ export type RunSummary = {
   costUsd: number;
   numTurns: number;
   startedAt: number;
+  /** Spawn path of the run. Script runs hide their cost label
+   *  ($0.00 would be visually ambiguous next to cost-killed Claude
+   *  runs reporting $0). */
+  runnerType?: "claude" | "script";
 };
 
 type Props = {
@@ -78,8 +82,10 @@ export function RunSidebar({
                   <StatusBadge status={r.status} />
                 </div>
                 <div className="text-[10px] text-[color:var(--muted)]">
-                  {r.agentId} · {r.numTurns} turn{r.numTurns === 1 ? "" : "s"} · $
-                  {r.costUsd.toFixed(4)}
+                  {r.agentId} · {r.numTurns} turn{r.numTurns === 1 ? "" : "s"}
+                  {r.runnerType === "script"
+                    ? null
+                    : ` · $${r.costUsd.toFixed(4)}`}
                 </div>
               </a>
             </li>

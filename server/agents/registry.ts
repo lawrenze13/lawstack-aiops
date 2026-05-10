@@ -17,9 +17,28 @@ export type AgentConfig = {
   lanes: readonly Lane[];
   /** Hint for Claude to invoke a particular skill (e.g. ce:brainstorm). */
   skillHint: string | null;
-  /** Model id passed to `claude --model`. */
+  /**
+   * Discriminator for the spawn path. `"claude"` (default) goes through
+   * the existing Claude pipeline. `"script"` forks a plain Node script
+   * directly — same observability stack, no LLM, no cost meter, no
+   * prompt. Used by `test:playwright` to shed the token cost of
+   * orchestrating a deterministic shell command.
+   *
+   * Fields below marked "unused for script runners" are ignored when
+   * `runnerType === "script"`. They stay required on the type to keep
+   * the 30+ existing call sites simple — script agents set them to
+   * placeholder values (`model: "n/a"`, `buildPrompt: () => ""`).
+   */
+  runnerType?: "claude" | "script";
+  /**
+   * For `runnerType === "script"`: path to the script (resolved against
+   * the aiops repo root if relative; used as-is if absolute). Spawned
+   * as `tsx <script> [...positional args]`.
+   */
+  script?: string;
+  /** Model id passed to `claude --model`. Unused for script runners. */
   model: string;
-  /** Hard cap on Claude turns to keep cost bounded. */
+  /** Hard cap on Claude turns. Unused for script runners. */
   maxTurns: number;
   /**
    * Permission mode passed to `claude --permission-mode`:
@@ -887,20 +906,28 @@ export const AGENTS = {
     id: "test:playwright",
     name: "CE Playwright",
     lanes: ["test"],
-    // No CE skill backs this — it's a thin shell-orchestration agent.
     skillHint: null,
-    // Sonnet is fine: the agent reads JSON output and writes a
-    // markdown summary. No real reasoning needed.
-    model: "claude-sonnet-4-6",
-    // Tight cap — most of the wall-clock is Playwright itself, which
-    // doesn't burn Claude turns.
-    maxTurns: 30,
-    // Required to run `pnpm playwright install` + `pnpm playwright test`
-    // unprompted. Same env-minimisation as ce:work.
-    permissionMode: "bypassPermissions",
-    // Default cost caps ($5/$15 from globals) — overridable via
-    // AGENT_OVERRIDES once we have signal from real runs.
-    buildPrompt: playwrightTestPrompt,
+    // Script runner — no Claude subprocess. spawnScriptInner forks
+    // `tsx scripts/run-playwright.ts <jiraKey> <branch>` directly,
+    // saving the ~$0.10–$0.50 in Claude tokens this agent used to
+    // burn for shell orchestration that doesn't benefit from LLM
+    // reasoning. The script writes the same `docs/tests/<JIRA>-test.md`
+    // shape testComplete reads via parseTestArtifact, so the
+    // downstream pipeline (artifact ingest, Jira comment, lane
+    // transition) is unchanged.
+    runnerType: "script",
+    script: "scripts/run-playwright.ts",
+    // Required by the AgentConfig type but unused for script
+    // runners. The buildPrompt fn satisfies the type contract;
+    // startRun skips calling it when runnerType === "script".
+    model: "n/a",
+    maxTurns: 0,
+    buildPrompt: () => "",
+    // Kept for back-compat with the old prompt for inspection /
+    // forensics, even though the script runner doesn't use it.
+    // Comment out to drop the unused import; leave for now in case
+    // we need to debug a regression.
+    // legacyClaudePrompt: playwrightTestPrompt,
     // Output filename is `docs/tests/<JIRA>-test.md`; persistArtifacts
     // already maps this via LANE_TO_KIND.test.
   },
@@ -994,6 +1021,17 @@ export function getAgent(
         `${baseBuildPrompt(ctx)}\n\n## Operator notes\n\n${appendText.trim()}\n`
     : baseBuildPrompt;
 
+  // Script-runner override: TEST_RUNNER_SCRIPT (config) replaces the
+  // bundled `scripts/run-playwright.ts` for any agent whose
+  // runnerType === "script". Lets a managed repo provide its own
+  // runner without forking aiops. Currently only test:playwright
+  // qualifies; future script agents can opt into the same key by
+  // declaring runnerType: "script".
+  const scriptOverride =
+    base.runnerType === "script"
+      ? (getConfig("TEST_RUNNER_SCRIPT") ?? undefined)
+      : undefined;
+
   return {
     ...base,
     model:
@@ -1005,6 +1043,7 @@ export function getAgent(
       pickNumber(userOverrides.costKillUsd, instanceOverrides.costKillUsd) ??
       base.costKillUsd,
     buildPrompt,
+    script: scriptOverride ?? base.script,
   };
 }
 
@@ -1048,6 +1087,12 @@ export function snapshotAgent(a: AgentConfig): string {
     skillHint: a.skillHint,
     model: a.model,
     maxTurns: a.maxTurns,
+    // Persist runnerType per-run so the UI (cost-hiding, run-history
+    // rendering) can tell script runs from Claude runs without
+    // depending on the live registry — agents may be re-flipped
+    // between runs and historical inspection should remain truthful.
+    runnerType: a.runnerType ?? "claude",
+    script: a.script,
     configHash: hashAgentConfig(a),
   });
 }

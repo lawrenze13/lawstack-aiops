@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import readline from "node:readline";
 import { eq, sql } from "drizzle-orm";
 import { db, sqlite } from "@/server/db/client";
@@ -56,6 +58,25 @@ export type SpawnAgentParams = {
    * fine because they touch different worktrees.
    */
   serializeKey?: string;
+  /**
+   * Discriminator for the spawn path. `"claude"` (default) goes through
+   * the existing `claude -p` pipeline. `"script"` forks a plain Node /
+   * shell script — same observability stack (runRegistry, bus, finalize)
+   * but no LLM, no cost meter, no prompt. Used by `test:playwright` to
+   * shed the token cost of orchestrating a deterministic shell command.
+   */
+  runnerType?: "claude" | "script";
+  /**
+   * For `runnerType === "script"`: path to the script. Resolved against
+   * the aiops repo root if relative; absolute paths are used as-is.
+   * Spawned as `tsx <scriptPath> [...scriptArgs]`.
+   */
+  scriptPath?: string;
+  /**
+   * Positional arguments passed verbatim to the script. Typically
+   * `[jiraKey, branch]` for `run-playwright.ts`.
+   */
+  scriptArgs?: string[];
 };
 
 const KILL_GRACE_MS = 5000;
@@ -84,6 +105,13 @@ const _serializeChains: Map<string, Promise<void>> = new Map();
  * gone so the queue depth tracks process lifetime, not full lane lifetime.
  */
 export function spawnAgent(p: SpawnAgentParams): void {
+  // Pick the inner implementation based on the agent's runner type.
+  // Both implementations share the same exit-callback contract — they
+  // call `onChildExit` exactly once when the child process closes — so
+  // the serialise-chain wrapping below is identical across runner types.
+  const inner =
+    p.runnerType === "script" ? spawnScriptInner : spawnClaudeInner;
+
   if (p.serializeKey) {
     const key = p.serializeKey;
     const prior = _serializeChains.get(key) ?? Promise.resolve();
@@ -92,10 +120,10 @@ export function spawnAgent(p: SpawnAgentParams): void {
     const next = prior.then(() => mine);
     _serializeChains.set(key, next);
     // Spawn after the prior holder's child exits. The release fn is
-    // invoked from spawnAgentInner's child.on("exit") handler.
+    // invoked from the inner's child.on("exit") handler.
     void prior.then(() => {
       try {
-        spawnAgentInner(p, () => {
+        inner(p, () => {
           release();
           if (_serializeChains.get(key) === next) _serializeChains.delete(key);
         });
@@ -107,10 +135,10 @@ export function spawnAgent(p: SpawnAgentParams): void {
     });
     return;
   }
-  spawnAgentInner(p);
+  inner(p);
 }
 
-function spawnAgentInner(p: SpawnAgentParams, onChildExit?: () => void): void {
+function spawnClaudeInner(p: SpawnAgentParams, onChildExit?: () => void): void {
   const args: string[] = [
     "-oL",
     "-eL",
@@ -411,6 +439,240 @@ function spawnAgentInner(p: SpawnAgentParams, onChildExit?: () => void): void {
 
   audit({ action: "run.started", runId: p.runId, taskId: p.taskId, payload: { model: p.model } });
   void sql; // silence unused-import in some configs
+}
+
+// ─── Script-runner inner ───────────────────────────────────────────────
+//
+// Forks a plain Node script (e.g. `scripts/run-playwright.ts`) instead
+// of a `claude -p` subprocess. The script orchestrates whatever shell
+// commands it needs (pnpm playwright install + test, etc.) and writes
+// its artifact directly to disk. aiops streams stdout/stderr lines into
+// the messages table the same way the Claude path does — but as
+// `server` events with `kind: "stdout"` / `"stderr"`, since the lines
+// don't follow Claude's stream-json shape.
+//
+// What's identical to spawnClaudeInner:
+//  - runRegistry registration + stop() function (Stop button works)
+//  - serialise-chain release on exit (mutex)
+//  - bus.emit via persistAndEmit (SSE)
+//  - decideExitStatus → finalize chain (artifact persistence,
+//    testComplete, autoAdvance, lane rollback all unchanged)
+//
+// What's different:
+//  - No --permission-mode, --model, --session-id (no Claude CLI args)
+//  - No initMeter / observeAssistantUsage (cost is always $0)
+//  - No parseStreamLine (raw line text, no Claude event parsing)
+//  - No NEEDS_INPUT detection (scripts can't pause for human input)
+//  - No claudeSessionId / numTurns updates
+function spawnScriptInner(
+  p: SpawnAgentParams,
+  onChildExit?: () => void,
+): void {
+  // Resolve the script path. Relative paths are anchored to the aiops
+  // repo root (process.cwd() of the orchestrator process). Absolute
+  // paths used as-is. Reject early if missing so the operator sees a
+  // clear failure instead of a cryptic spawn error.
+  const aiopsRoot = process.cwd();
+  const scriptPath = p.scriptPath
+    ? path.isAbsolute(p.scriptPath)
+      ? p.scriptPath
+      : path.join(aiopsRoot, p.scriptPath)
+    : null;
+
+  if (!scriptPath || !existsSync(scriptPath)) {
+    audit({
+      action: "run.script_missing",
+      runId: p.runId,
+      taskId: p.taskId,
+      payload: { scriptPath: scriptPath ?? "(unset)" },
+    });
+    // Record a synthetic 'spawned'+'exit' so the run log shows a clear
+    // "we tried, here's what failed" trail before finalize fires.
+    try {
+      const insertMsg = sqlite.prepare(
+        `INSERT INTO messages (run_id, seq, type, payload_json, created_at)
+         VALUES (?, COALESCE((SELECT MAX(seq) FROM messages WHERE run_id = ?), 0) + 1, ?, ?, ?)`,
+      );
+      insertMsg.run(
+        p.runId,
+        p.runId,
+        "server",
+        JSON.stringify({
+          kind: "spawn_error",
+          error: `script not found: ${scriptPath ?? "(unset)"}`,
+        }),
+        Date.now(),
+      );
+    } catch {
+      // ignore — the audit row is still the source of truth
+    }
+    void finalize(
+      p.runId,
+      "failed",
+      `script not found: ${scriptPath ?? "(unset)"}`,
+    );
+    try {
+      onChildExit?.();
+    } catch {
+      // ignore
+    }
+    return;
+  }
+
+  // tsx is a runtime dep (node_modules/.bin/tsx). Use the absolute path
+  // so the resolution doesn't depend on the spawned child's PATH —
+  // matches the same minimised-env discipline as the Claude path.
+  const tsxBin = path.join(aiopsRoot, "node_modules/.bin/tsx");
+
+  // Same env-minimisation as the Claude path (no spread of process.env).
+  // Add AIOPS_* identifiers so the script can correlate with the run
+  // without re-deriving them from positional args.
+  const childEnv: NodeJS.ProcessEnv = {
+    NODE_ENV: process.env.NODE_ENV ?? "production",
+    PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+    HOME: process.env.HOME ?? p.worktreePath,
+    LANG: process.env.LANG ?? "en_US.UTF-8",
+    USER: process.env.USER ?? "",
+    TERM: "xterm-256color",
+    AIOPS_TASK_ID: p.taskId,
+    AIOPS_RUN_ID: p.runId,
+  };
+  // Allow the script to fail loudly if it expects a Playwright timeout
+  // override. Forwarded only when explicitly set in the parent process.
+  if (process.env.PLAYWRIGHT_TIMEOUT_MS) {
+    childEnv.PLAYWRIGHT_TIMEOUT_MS = process.env.PLAYWRIGHT_TIMEOUT_MS;
+  }
+
+  const child = spawn(tsxBin, [scriptPath, ...(p.scriptArgs ?? [])], {
+    cwd: p.worktreePath,
+    env: childEnv,
+    stdio: ["ignore", "pipe", "pipe"] as const,
+    detached: false,
+  });
+
+  const bus = getRunBus(p.runId);
+  const startedAt = Date.now();
+
+  let lastStopReason: StopReason | undefined;
+  const stop = (reason: StopReason): void => {
+    if (child.killed) return;
+    lastStopReason = reason;
+    audit({ action: "run.stop_requested", runId: p.runId, payload: { reason } });
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      // ignore
+    }
+    setTimeout(() => {
+      if (!child.killed) {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          // ignore
+        }
+      }
+    }, KILL_GRACE_MS).unref();
+  };
+
+  runRegistry.set(p.runId, {
+    runId: p.runId,
+    taskId: p.taskId,
+    child,
+    startedAt,
+    stop,
+  });
+
+  // No initMeter — script runs are always $0.
+
+  const insertMsg = sqlite.prepare(
+    `INSERT INTO messages (run_id, seq, type, payload_json, created_at)
+     VALUES (?, COALESCE((SELECT MAX(seq) FROM messages WHERE run_id = ?), 0) + 1, ?, ?, ?)
+     RETURNING seq`,
+  );
+  const heartbeat = sqlite.prepare(`UPDATE runs SET last_heartbeat_at = ? WHERE id = ?`);
+
+  const persistAndEmit = (
+    type: RunEvent["type"],
+    payload: unknown,
+  ): void => {
+    try {
+      const row = insertMsg.get(p.runId, p.runId, type, JSON.stringify(payload), Date.now()) as
+        | { seq: number }
+        | undefined;
+      const seq = row?.seq ?? 0;
+      heartbeat.run(Date.now(), p.runId);
+      bus.emit("event", { seq, type, payload } satisfies RunEvent);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[spawnScript] persist failed", { runId: p.runId, err });
+    }
+  };
+
+  // Synthetic spawned event so the client sees the run started before
+  // any script output streams in.
+  persistAndEmit("server", {
+    kind: "spawned",
+    runner: "script",
+    scriptPath,
+    worktree: p.worktreePath,
+  });
+
+  // Cap individual log lines so a runaway script (or a giant Playwright
+  // error trace) can't blow out the messages table with one row.
+  const MAX_LINE_LEN = 8000;
+
+  const rl = readline.createInterface({ input: child.stdout!, terminal: false });
+  rl.on("line", (line) => {
+    persistAndEmit("server", { kind: "stdout", line: line.slice(0, MAX_LINE_LEN) });
+  });
+  if (child.stderr) {
+    const rlErr = readline.createInterface({ input: child.stderr, terminal: false });
+    rlErr.on("line", (line) => {
+      if (!line.trim()) return;
+      persistAndEmit("server", { kind: "stderr", line: line.slice(0, MAX_LINE_LEN) });
+    });
+  }
+
+  // Idempotent serialise-chain release (mirrors spawnClaudeInner).
+  let exitChainReleased = false;
+  const releaseExitChain = () => {
+    if (exitChainReleased) return;
+    exitChainReleased = true;
+    try {
+      onChildExit?.();
+    } catch {
+      // ignore
+    }
+  };
+
+  child.on("error", (err) => {
+    persistAndEmit("server", { kind: "spawn_error", error: String(err) });
+    releaseExitChain();
+    void finalize(p.runId, "failed", `spawn_error: ${String(err)}`);
+  });
+
+  child.on("exit", (code, signal) => {
+    releaseExitChain();
+    persistAndEmit("server", { kind: "exit", code, signal });
+    const status = decideExitStatus(code, signal, lastStopReason);
+    const reasonTag = lastStopReason ? `${lastStopReason}:` : "";
+    void finalize(
+      p.runId,
+      status,
+      `${reasonTag}exit code=${code} signal=${signal ?? "none"}`,
+    );
+  });
+
+  audit({
+    action: "run.started",
+    runId: p.runId,
+    taskId: p.taskId,
+    payload: {
+      runner: "script",
+      scriptPath,
+      scriptArgs: p.scriptArgs ?? [],
+    },
+  });
 }
 
 // decideExitStatus lives in ./exitStatus.ts — it's pure, has no DB
